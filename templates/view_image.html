@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>View Image - {{ device.patient_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Image Viewer</h1>
+            <a href="/" class="btn btn-secondary">← Back to Dashboard</a>
+        </header>
+
+        <div class="image-viewer">
+            <div class="image-info">
+                <h2>{{ device.patient_name }}</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <strong>Device ID:</strong>
+                        <span>{{ device.id }}</span>
+                    </div>
+                    <div class="info-item">
+                        <strong>Room:</strong>
+                        <span>{{ device.room }}</span>
+                    </div>
+                    <div class="info-item">
+                        <strong>Battery:</strong>
+                        <span>{{ device.battery_level }}%</span>
+                    </div>
+                    <div class="info-item">
+                        <strong>Status:</strong>
+                        <span class="badge badge-{{ device.status }}">{{ device.status }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="image-container">
+                <div id="imageLoading" class="loading">
+                    <div class="spinner"></div>
+                    <p>Loading image...</p>
+                </div>
+                <div id="imageContent" style="display: none;">
+                    <img id="deviceImage" src="" alt="Device captured image">
+                    <div class="image-metadata">
+                        <p><strong>Captured:</strong> <span id="imageTimestamp"></span></p>
+                        <p><strong>Size:</strong> <span id="imageSize"></span></p>
+                        <p><strong>Resolution:</strong> <span id="imageResolution"></span></p>
+                    </div>
+                </div>
+                <div id="imageError" style="display: none;" class="error-message">
+                    <p>⚠ No image available for this device</p>
+                    <button onclick="requestNewImage()" class="btn btn-primary">Request New Image</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const deviceId = '{{ device.id }}';
+
+        // Load image on page load
+        window.addEventListener('DOMContentLoaded', function() {
+            loadDeviceImage();
+        });
+
+        async function loadDeviceImage() {
+            try {
+                const response = await fetch(`/api/device/${deviceId}/image`);
+                const data = await response.json();
+
+                if (data.success) {
+                    document.getElementById('imageLoading').style.display = 'none';
+                    document.getElementById('imageContent').style.display = 'block';
+                    
+                    document.getElementById('deviceImage').src = data.image_url;
+                    document.getElementById('imageTimestamp').textContent = new Date(data.timestamp).toLocaleString();
+                    document.getElementById('imageSize').textContent = data.size || 'N/A';
+                    document.getElementById('imageResolution').textContent = data.resolution || 'N/A';
+                } else {
+                    document.getElementById('imageLoading').style.display = 'none';
+                    document.getElementById('imageError').style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Error loading image:', error);
+                document.getElementById('imageLoading').style.display = 'none';
+                document.getElementById('imageError').style.display = 'block';
+            }
+        }
+
+        async function requestNewImage() {
+            try {
+                const response = await fetch(`/api/request-image/${deviceId}`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    alert(`Image request sent! Estimated time: ${data.estimated_time}`);
+                    // Reload page after estimated time
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 5000);
+                } else {
+                    alert('Failed to request image: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error requesting image:', error);
+                alert('Failed to request image');
+            }
+        }
+    </script>
+</body>
+</html>

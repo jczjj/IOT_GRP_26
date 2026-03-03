@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Elderly Home Monitoring - Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Elderly Home Monitoring System</h1>
+            <p>RSSI-Based Localization with Wi-Fi Hopping</p>
+        </header>
+
+        <div class="main-content">
+            <!-- 3D Topology Visualization -->
+            <div class="visualization-panel">
+                <div class="panel-header">
+                    <h2>3D Facility Topology</h2>
+                    <div class="controls">
+                        <button id="resetView" class="btn btn-secondary">Reset View</button>
+                        <button id="refreshData" class="btn btn-primary">↻ Refresh</button>
+                    </div>
+                </div>
+                <div id="canvas-container"></div>
+                <div class="legend">
+                    <div class="legend-item">
+                        <span class="color-box" style="background: #ff6b6b;"></span>
+                        <span>Patient Devices</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="color-box" style="background: #4ecdc4;"></span>
+                        <span>Stationary Nodes</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="color-box" style="background: #ffe66d;"></span>
+                        <span>Gateway</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Device List Panel -->
+            <div class="device-panel">
+                <div class="panel-header">
+                    <h2>Patient Devices</h2>
+                    <span id="deviceCount" class="badge">0</span>
+                </div>
+                <div id="deviceList" class="device-list">
+                    <!-- Populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Device Detail Modal -->
+        <div id="deviceModal" class="modal">
+            <div class="modal-content">
+                <span class="close">&times;</span>
+                <h2 id="modalTitle"></h2>
+                <div id="modalBody">
+                    <!-- Populated by JavaScript -->
+                </div>
+                <div class="modal-actions">
+                    <button id="locateBtn" class="btn btn-primary">Update Location</button>
+                    <button id="requestImageBtn" class="btn btn-success">Request Image</button>
+                    <button id="viewImageBtn" class="btn btn-info" style="display: none;">View Image</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notification Toast -->
+        <div id="toast" class="toast"></div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/topology3d.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>
