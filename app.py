@@ -232,6 +232,51 @@ def update_rssi(device_id, node_id, rssi):
     })
 
 
+@app.route('/api/localize/<device_id>', methods=['POST'])
+def localize(device_id):
+    """
+    Calculate device location using RSSI-based trilateration.
+    
+    Retrieves latest RSSI readings from all anchor nodes and performs
+    weighted least-squares trilateration to estimate device position.
+    
+    Query params:
+        - use_2d: If 'true', assumes device at fixed height (1.2m)
+    
+    Returns:
+        {
+            'success': bool,
+            'position': {'x': float, 'y': float, 'z': float},
+            'residual_error': float,     # Fitting error in meters
+            'confidence': float,         # 0.0-1.0
+            'accuracy': float,           # Estimated accuracy
+            'num_measurements': int,
+            'timestamp': str,
+            'message': str
+        }
+    """
+    use_2d = request.args.get('use_2d', 'false').lower() == 'true'
+    
+    result = device_manager.localize_device(device_id, use_2d=use_2d)
+    
+    if result:
+        return jsonify({
+            'success': True,
+            'position': result['position'],
+            'residual_error': result['residual_error'],
+            'confidence': result['confidence'],
+            'accuracy': result['accuracy'],
+            'num_measurements': result['num_measurements'],
+            'timestamp': result['timestamp'],
+            'message': f"Device {device_id} localized successfully"
+        })
+    else:
+        return jsonify({
+            'success': False,
+            'error': f'Failed to localize device {device_id}. Ensure RSSI readings exist from at least 3 anchor nodes.'
+        }), 400
+
+
 @app.route('/api/update-battery/<device_id>/<int:battery_level>', methods=['POST'])
 def update_battery(device_id, battery_level):
     """Manual endpoint to update battery level"""

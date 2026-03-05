@@ -26,6 +26,14 @@ from database import (
     log_system_event
 )
 
+# Import localization functions
+from localization import (
+    RSSIToDistance,
+    Trilateration,
+    AnchorPoint,
+    localize_device
+)
+
 # Make Pillow optional - only used for image resolution detection
 try:
     from PIL import Image
@@ -298,6 +306,94 @@ class DeviceManager:
             
             # No viable relay found, try direct
             return [device_id, 'gateway']
+    
+    def localize_device(self, device_id: str, use_2d: bool = False) -> Optional[Dict[str, Any]]:
+        """
+        Calculate device location using RSSI trilateration.
+        
+        Retrieves latest RSSI readings for the device from all anchor nodes,
+        converts RSSI to distances, and performs weighted least-squares trilateration.
+        
+        Args:
+            device_id: Device to localize
+            use_2d: If True, assumes device at fixed height (1.2m)
+        
+        Returns:
+            Dict with localization result:
+            {
+                'position': {'x': float, 'y': float, 'z': float},
+                'residual_error': float,  # Fitting error in meters
+                'confidence': float,      # 0.0-1.0
+                'accuracy': float,        # Estimated accuracy
+                'num_measurements': int,
+                'timestamp': str
+            }
+            Returns None if localization fails
+        """
+        with self.lock:
+            # Get latest RSSI readings for this device from database
+            try:
+                from database import get_connection
+                conn = get_connection()
+                cursor = conn.cursor()
+                
+                # Query latest RSSI from each node
+                cursor.execute('''
+                    SELECT node_id, rssi
+                    FROM rssi_readings
+                    WHERE device_id = ?
+                    ORDER BY node_id, timestamp DESC
+                ''', (device_id,))
+                
+                rssi_by_node = {}
+                seen_nodes = set()
+                
+                for row in cursor.fetchall():
+                    node_id = row['node_id']
+                    if node_id not in seen_nodes:
+                        rssi_by_node[node_id] = row['rssi']
+                        seen_nodes.add(node_id)
+                
+                if not rssi_by_node:
+                    logger.warning(f"No RSSI measurements found for {device_id}")
+                    return None
+                
+                # Get all stationary nodes as anchors
+                nodes = db_get_stationary_nodes()
+                anchors = {}
+                
+                for node in nodes:
+                    anchors[node['node_id']] = AnchorPoint(
+                        node_id=node['node_id'],
+                        name=node['name'],
+                        x=node['location_x'],
+                        y=node['location_y'],
+                        z=node['location_z']
+                    )
+                
+                # Perform localization
+                result = localize_device(
+                    device_id=device_id,
+                    rssi_readings=rssi_by_node,
+                    anchors=anchors,
+                    use_2d=use_2d,
+                    filter_outliers=True
+                )
+                
+                if result:
+                    # Update device location in database
+                    pos = result['position']
+                    update_device_location(device_id, pos['x'], pos['y'], pos['z'])
+                    logger.info(f"Updated {device_id} location via trilateration: ({pos['x']:.2f}, {pos['y']:.2f}, {pos['z']:.2f})")
+                    
+                    return result
+                else:
+                    logger.warning(f"Trilateration failed for {device_id}")
+                    return None
+                
+            except Exception as e:
+                logger.error(f"Error localizing device {device_id}: {e}", exc_info=True)
+                return None
     
     def _calculate_distance(self, loc1: Dict[str, float], loc2: Dict[str, float]) -> float:
         """Calculate Euclidean distance between two locations"""
