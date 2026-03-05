@@ -60,11 +60,12 @@ def test_with_simulated_data():
     print("="*60)
     
     # Define test anchors (30m × 40m facility)
+    # Gateway at center, each SN is 5m away forming equilateral triangle, 1m lower
     anchors = {
-        'gateway': AnchorPoint('gateway', 'Gateway', 0, 0, 2.5),
-        'sn1': AnchorPoint('sn1', 'Anchor 1', 30, 0, 2.5),
-        'sn2': AnchorPoint('sn2', 'Anchor 2', 15, 40, 2.5),
-        'sn3': AnchorPoint('sn3', 'Anchor 3', 15, 20, 0.5)
+        'gateway': AnchorPoint('gateway', 'Gateway', 15, 20, 2.5),
+        'sn1': AnchorPoint('sn1', 'Anchor 1 (East)', 20, 20, 1.5),
+        'sn2': AnchorPoint('sn2', 'Anchor 2 (Northwest)', 12.5, 24.33, 1.5),
+        'sn3': AnchorPoint('sn3', 'Anchor 3 (Southwest)', 12.5, 15.67, 1.5)
     }
     
     # Test cases with known true positions
@@ -72,22 +73,22 @@ def test_with_simulated_data():
         {
             'name': 'Center',
             'true_pos': np.array([15, 20, 1.2]),
-            'description': 'Device in center of facility'
+            'description': 'Device at facility center (gateway location)'
         },
         {
-            'name': 'Corner (Gateway)',
-            'true_pos': np.array([2, 2, 1.2]),
-            'description': 'Device near gateway'
+            'name': 'Near Gateway',
+            'true_pos': np.array([15, 20, 1.2]),
+            'description': 'Device close to gateway'
         },
         {
-            'name': 'Far corner',
-            'true_pos': np.array([28, 38, 1.2]),
-            'description': 'Device in opposite corner'
+            'name': 'Between SN1 and SN2',
+            'true_pos': np.array([16.2, 22.2, 1.2]),
+            'description': 'Device in triangle between anchors'
         },
         {
-            'name': 'Edge',
-            'true_pos': np.array([30, 20, 1.2]),
-            'description': 'Device along edge'
+            'name': 'East Side',
+            'true_pos': np.array([25, 20, 1.2]),
+            'description': 'Device toward SN1 (east)'
         }
     ]
     
@@ -153,10 +154,10 @@ def test_with_manual_rssi():
     print("="*60)
     
     anchors = {
-        'gateway': AnchorPoint('gateway', 'Gateway', 0, 0, 2.5),
-        'sn1': AnchorPoint('sn1', 'Anchor 1', 30, 0, 2.5),
-        'sn2': AnchorPoint('sn2', 'Anchor 2', 15, 40, 2.5),
-        'sn3': AnchorPoint('sn3', 'Anchor 3', 15, 20, 0.5)
+        'gateway': AnchorPoint('gateway', 'Gateway', 15, 20, 2.5),
+        'sn1': AnchorPoint('sn1', 'Anchor 1 (East)', 20, 20, 1.5),
+        'sn2': AnchorPoint('sn2', 'Anchor 2 (Northwest)', 12.5, 24.33, 1.5),
+        'sn3': AnchorPoint('sn3', 'Anchor 3 (Southwest)', 12.5, 15.67, 1.5)
     }
     
     # Example: Device somewhere in facility
@@ -213,10 +214,10 @@ def test_2d_vs_3d():
     print("="*60)
     
     anchors = {
-        'gateway': AnchorPoint('gateway', 'Gateway', 0, 0, 2.5),
-        'sn1': AnchorPoint('sn1', 'Anchor 1', 30, 0, 2.5),
-        'sn2': AnchorPoint('sn2', 'Anchor 2', 15, 40, 2.5),
-        'sn3': AnchorPoint('sn3', 'Anchor 3', 15, 20, 0.5)
+        'gateway': AnchorPoint('gateway', 'Gateway', 15, 20, 2.5),
+        'sn1': AnchorPoint('sn1', 'Anchor 1 (East)', 20, 20, 1.5),
+        'sn2': AnchorPoint('sn2', 'Anchor 2 (Northwest)', 12.5, 24.33, 1.5),
+        'sn3': AnchorPoint('sn3', 'Anchor 3 (Southwest)', 12.5, 15.67, 1.5)
     }
     
     # True position

@@ -75,33 +75,34 @@ INITIAL_DEVICES = [
 ]
 
 # Stationary nodes
+# Gateway at facility center (15, 20), SNs form equilateral triangle 5m away, 1m lower
 STATIONARY_NODES = [
     {
         'id': 'gateway',
-        'name': 'LoRaWAN Gateway',
+        'name': 'LoRaWAN Gateway (Center)',
         'type': 'gateway',
-        'location': {'x': 15.0, 'y': 20.0, 'z': 3.0},
+        'location': {'x': 15.0, 'y': 20.0, 'z': 2.5},
         'status': 'online'
     },
     {
         'id': 'sn1',
-        'name': 'Stationary Node 1',
+        'name': 'Stationary Node 1 (East)',
         'type': 'anchor',
-        'location': {'x': 5.0, 'y': 5.0, 'z': 2.5},
+        'location': {'x': 20.0, 'y': 20.0, 'z': 1.5},
         'status': 'online'
     },
     {
         'id': 'sn2',
-        'name': 'Stationary Node 2',
+        'name': 'Stationary Node 2 (Northwest)',
         'type': 'anchor',
-        'location': {'x': 25.0, 'y': 5.0, 'z': 2.5},
+        'location': {'x': 12.5, 'y': 24.33, 'z': 1.5},
         'status': 'online'
     },
     {
         'id': 'sn3',
-        'name': 'Stationary Node 3',
+        'name': 'Stationary Node 3 (Southwest)',
         'type': 'anchor',
-        'location': {'x': 15.0, 'y': 35.0, 'z': 2.5},
+        'location': {'x': 12.5, 'y': 15.67, 'z': 1.5},
         'status': 'online'
     }
 ]
