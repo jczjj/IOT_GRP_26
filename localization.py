@@ -80,7 +80,9 @@ class RSSIToDistance:
             return RSSIToDistance.MIN_DISTANCE
         
         # Log-distance path loss formula
-        path_loss = (rssi - tx_power)
+        # RSSI closer to 0 = nearer, more negative = farther
+        # d = 10^((TX_POWER - RSSI) / (10 * n))
+        path_loss = tx_power - rssi
         distance = 10 ** (path_loss / (10 * n))
         
         # Clamp to valid range
@@ -156,14 +158,8 @@ class Trilateration:
             logger.warning(f"Insufficient measurements: {len(measurements)} (need {Trilateration.MIN_ANCHORS})")
             return None
         
-        # Prepare data for least-squares solving
-        # Build matrices for: (x-xi)^2 + (y-yi)^2 + (z-zi)^2 = ri^2
-        
-        A = []  # Coefficient matrix
-        b = []  # Right-hand side
-        weights = []  # Optional weights
-        
-        valid_measurements = []
+        # Collect valid measurements with their anchors
+        valid_data = []
         
         for measurement in measurements:
             if measurement.node_id not in anchors:
@@ -171,32 +167,42 @@ class Trilateration:
                 continue
             
             anchor = anchors[measurement.node_id]
-            
-            # Each measurement gives us a constraint
-            # 2(xi*x + yi*y + zi*z) - (x + y + z) = ri^2 - xi^2 - yi^2 - zi^2
-            # Rearranged for least squares
-            
-            valid_measurements.append(measurement)
-            
-            # Row of A: [2*xi, 2*yi, 2*zi]
-            A.append([2 * anchor.x, 2 * anchor.y, 2 * anchor.z])
-            
-            # Right side: ri^2 - xi^2 - yi^2 - zi^2
-            ri_sq = measurement.distance ** 2
-            anchor_dist_sq = anchor.x**2 + anchor.y**2 + anchor.z**2
-            b.append(ri_sq - anchor_dist_sq)
-            
-            # Weight by confidence
-            if use_weights:
-                weights.append(measurement.confidence)
-            else:
-                weights.append(1.0)
+            valid_data.append((anchor, measurement))
         
-        if len(valid_measurements) < Trilateration.MIN_ANCHORS:
-            logger.warning(f"Not enough valid measurements after filtering: {len(valid_measurements)}")
+        if len(valid_data) < Trilateration.MIN_ANCHORS:
+            logger.warning(f"Not enough valid measurements after filtering: {len(valid_data)}")
             return None
         
         try:
+            # Linearized trilateration by subtracting reference equation
+            # Sphere eq: (x-xi)^2 + (y-yi)^2 + (z-zi)^2 = di^2
+            # Subtracting eq_0 from eq_i eliminates the unknown x^2+y^2+z^2 term:
+            # 2*(x0-xi)*x + 2*(y0-yi)*y + 2*(z0-zi)*z = d0^2 - di^2 + ||pi||^2 - ||p0||^2
+            
+            ref_anchor, ref_meas = valid_data[0]
+            ref_dist_sq = ref_meas.distance ** 2
+            ref_anchor_sq = ref_anchor.x**2 + ref_anchor.y**2 + ref_anchor.z**2
+            
+            A = []
+            b = []
+            weights = []
+            
+            for anchor, measurement in valid_data[1:]:
+                di_sq = measurement.distance ** 2
+                anchor_i_sq = anchor.x**2 + anchor.y**2 + anchor.z**2
+                
+                A.append([
+                    2 * (anchor.x - ref_anchor.x),
+                    2 * (anchor.y - ref_anchor.y),
+                    2 * (anchor.z - ref_anchor.z)
+                ])
+                b.append(di_sq - ref_dist_sq + ref_anchor_sq - anchor_i_sq)
+                
+                if use_weights:
+                    weights.append(measurement.confidence)
+                else:
+                    weights.append(1.0)
+            
             # Convert to numpy arrays
             A = np.array(A, dtype=float)
             b = np.array(b, dtype=float)
@@ -243,7 +249,7 @@ class Trilateration:
                 'residual_error': rms_error,
                 'confidence': avg_confidence,
                 'accuracy': accuracy,
-                'num_measurements': len(valid_measurements),
+                'num_measurements': len(valid_data),
                 'timestamp': datetime.now().isoformat()
             }
             
@@ -377,7 +383,7 @@ if __name__ == '__main__':
     
     for node_id, anchor in anchors.items():
         distance = float(np.linalg.norm(test_position - anchor.position()))
-        rssi = RSSIToDistance.TX_POWER + 10 * RSSIToDistance.PATH_LOSS_EXPONENT * math.log10(distance) + \
+        rssi = RSSIToDistance.TX_POWER - 10 * RSSIToDistance.PATH_LOSS_EXPONENT * math.log10(distance) + \
                np.random.normal(0, 2)  # Add small noise
         rssi_readings[node_id] = int(rssi)
         print(f"Simulated {node_id}: distance={distance:.2f}m → RSSI={rssi:.1f} dBm")

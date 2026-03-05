@@ -107,8 +107,9 @@ def test_with_simulated_data():
         for node_id, anchor in anchors.items():
             distance = float(np.linalg.norm(true_pos - anchor.position()))
             
-            # Calculate RSSI without noise
-            rssi_ideal = RSSIToDistance.TX_POWER + 10 * RSSIToDistance.PATH_LOSS_EXPONENT * math.log10(distance)
+            # Calculate RSSI without noise (RSSI = TX_POWER - 10*n*log10(d))
+            # Closer to 0 = nearer, more negative = farther
+            rssi_ideal = RSSIToDistance.TX_POWER - 10 * RSSIToDistance.PATH_LOSS_EXPONENT * math.log10(distance)
             
             # Add some noise (typical measurement error)
             noise = np.random.normal(0, 2.5)  # 2.5 dBm std dev
@@ -227,7 +228,7 @@ def test_2d_vs_3d():
     rssi_readings = {}
     for node_id, anchor in anchors.items():
         distance = float(np.linalg.norm(true_pos - anchor.position()))
-        rssi = int(RSSIToDistance.TX_POWER + 10 * RSSIToDistance.PATH_LOSS_EXPONENT * math.log10(distance))
+        rssi = int(RSSIToDistance.TX_POWER - 10 * RSSIToDistance.PATH_LOSS_EXPONENT * math.log10(distance))
         rssi_readings[node_id] = rssi
     
     print(f"\n  True position: ({true_pos[0]:.1f}, {true_pos[1]:.1f}, {true_pos[2]:.1f})")

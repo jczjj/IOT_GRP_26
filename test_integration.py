@@ -96,8 +96,9 @@ def test_trilateration_with_known_position():
         for node_id, anchor in anchors.items():
             distance = float(np.linalg.norm(true_pos - anchor.position()))
             
-            # Calculate RSSI without noise
-            rssi_ideal = RSSIToDistance.TX_POWER + 10 * RSSIToDistance.PATH_LOSS_EXPONENT * math.log10(distance)
+            # Calculate RSSI without noise (RSSI = TX_POWER - 10*n*log10(d))
+            # Closer to 0 = nearer, more negative = farther
+            rssi_ideal = RSSIToDistance.TX_POWER - 10 * RSSIToDistance.PATH_LOSS_EXPONENT * math.log10(distance)
             
             # Add some noise (typical measurement error)
             noise = np.random.normal(0, 2.5)  # 2.5 dBm std dev

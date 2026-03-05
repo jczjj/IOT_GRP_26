@@ -95,7 +95,7 @@ class DeviceManager:
                             'id': original_device_id,
                             'patient_name': original_device_id,
                             'room': 'Unknown',
-                            'location': {'x': 15.0, 'y': 20.0, 'z': 1.2},
+                            'location': {'x': 0, 'y': 0, 'z': 0},
                             'battery_level': 0,
                             'status': 'unknown',
                             'wifi_capable': False,
@@ -133,7 +133,7 @@ class DeviceManager:
                     'id': device_id,
                     'patient_name': device_id,  # Use device_id as default name
                     'room': 'Unknown',
-                    'location': {'x': 15.0, 'y': 20.0, 'z': 1.2},  # Default facility center
+                    'location': {'x': 0, 'y': 0, 'z': 0},  # 0 placeholder until RSSI trilateration
                     'battery_level': 0,
                     'status': 'unknown',
                     'wifi_capable': False,

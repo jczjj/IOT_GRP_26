@@ -447,11 +447,12 @@ function getRSSIStrength(rssi) {
 
 function estimateDistance(rssi) {
     // RSSI to distance conversion using log-distance path loss model
-    // distance = 10^((TX_POWER - RSSI) / (10 * n))
-    // TX_POWER = -40 dBm, n = 2.5 (indoor LoRa)
+    // d = 10^((TX_POWER - RSSI) / (10 * n))
+    // RSSI closer to 0 = nearer, more negative = farther
+    // TX_POWER = -40 dBm (reference at 1m), n = 2.5 (indoor LoRa)
     const txPower = -40;
     const pathLossExponent = 2.5;
-    const pathLoss = (rssi - txPower);
+    const pathLoss = txPower - rssi;
     const distance = Math.pow(10, pathLoss / (10 * pathLossExponent));
     
     // Clamp to reasonable range

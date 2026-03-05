@@ -81,7 +81,9 @@ class RSSIToDistance:
             return RSSIToDistance.MIN_DISTANCE
         
         # Log-distance path loss formula
-        path_loss = rssi - RSSIToDistance.TX_POWER
+        # RSSI closer to 0 = nearer, more negative = farther
+        # d = 10^((TX_POWER - RSSI) / (10 * n))
+        path_loss = RSSIToDistance.TX_POWER - rssi
         distance = 10 ** (path_loss / (10 * RSSIToDistance.PATH_LOSS_EXPONENT))
         
         # Clamp to valid range
@@ -135,7 +137,7 @@ class Trilateration:
         for node_id, rssi in rssi_dict.items():
             if node_id not in anchors:
                 continue
-            if rssi <= -20 or rssi < -120:  # Sanity check
+            if rssi > -20 or rssi < -120:  # Valid RSSI range: -120 to -20 dBm
                 continue
             
             distance = RSSIToDistance.rssi_to_distance(rssi)
@@ -150,22 +152,30 @@ class Trilateration:
             logger.warning(f"Insufficient measurements: {len(measurements)} (need {Trilateration.MIN_ANCHORS})")
             return None
         
-        # Build system for least-squares
+        # Linearized trilateration by subtracting reference equation
+        # Sphere eq: (x-xi)^2 + (y-yi)^2 + (z-zi)^2 = di^2
+        # Subtracting eq_0 from eq_i eliminates the unknown x^2+y^2+z^2 term
+        items = list(measurements.items())
+        ref_node_id, ref_data = items[0]
+        ref_anchor = anchors[ref_node_id]
+        ref_dist_sq = ref_data['distance'] ** 2
+        ref_anchor_sq = ref_anchor.x**2 + ref_anchor.y**2 + ref_anchor.z**2
+        
         A = []
         b = []
         weights = []
         
-        for node_id, data in measurements.items():
+        for node_id, data in items[1:]:
             anchor = anchors[node_id]
-            ri = data['distance']
+            di_sq = data['distance'] ** 2
+            anchor_i_sq = anchor.x**2 + anchor.y**2 + anchor.z**2
             
-            # Equation: (x-xi)^2 + (y-yi)^2 + (z-zi)^2 = ri^2
-            # Rearranged: 2*xi*x + 2*yi*y + 2*zi*z = ri^2 - xi^2 - yi^2 - zi^2
-            
-            A.append([2 * anchor.x, 2 * anchor.y, 2 * anchor.z])
-            ri_sq = ri ** 2
-            anchor_dist_sq = anchor.x**2 + anchor.y**2 + anchor.z**2
-            b.append(ri_sq - anchor_dist_sq)
+            A.append([
+                2 * (anchor.x - ref_anchor.x),
+                2 * (anchor.y - ref_anchor.y),
+                2 * (anchor.z - ref_anchor.z)
+            ])
+            b.append(di_sq - ref_dist_sq + ref_anchor_sq - anchor_i_sq)
             weights.append(data['confidence'])
         
         try:
