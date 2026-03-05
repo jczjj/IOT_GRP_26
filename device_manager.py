@@ -16,6 +16,7 @@ from database import (
     get_device,
     get_all_devices as db_get_all_devices,
     get_all_stationary_nodes as db_get_stationary_nodes,
+    insert_device,
     update_device_location,
     update_device_battery,
     update_device_uplink,
@@ -87,6 +88,24 @@ class DeviceManager:
                 rssi_value = payload_data.get('rssi')
                 
                 if original_device_id and rssi_value:
+                    # Auto-create original device if it doesn't exist
+                    if not get_device(original_device_id):
+                        logger.info(f"Creating new device from forwarded RSSI: {original_device_id}")
+                        new_device = {
+                            'id': original_device_id,
+                            'patient_name': original_device_id,
+                            'room': 'Unknown',
+                            'location': {'x': 15.0, 'y': 20.0, 'z': 1.2},
+                            'battery_level': 0,
+                            'status': 'unknown',
+                            'wifi_capable': False,
+                            'last_uplink': None,
+                            'heart_rate': None,
+                            'temperature': None,
+                            'has_image': False
+                        }
+                        insert_device(new_device)
+                    
                     # Map stationary node device_id to node_id (handle both sn-1 and sn-01 formats)
                     node_mapping = {
                         'sn-01': 'sn1', 'sn-1': 'sn1',
@@ -105,11 +124,30 @@ class DeviceManager:
                         logger.warning(f"Failed to update RSSI for {original_device_id}")
                 return  # Don't process further for forwarded messages
             
-            # Ensure device exists in database (for direct messages from end devices)
+            # Ensure device exists in database (auto-create from TTN data)
             device = get_device(device_id)
             if not device:
-                logger.warning(f"Received message from unknown device: {device_id}")
-                return
+                # Auto-create device from first TTN message
+                logger.info(f"Creating new device from TTN: {device_id}")
+                new_device = {
+                    'id': device_id,
+                    'patient_name': device_id,  # Use device_id as default name
+                    'room': 'Unknown',
+                    'location': {'x': 15.0, 'y': 20.0, 'z': 1.2},  # Default facility center
+                    'battery_level': 0,
+                    'status': 'unknown',
+                    'wifi_capable': False,
+                    'last_uplink': None,
+                    'heart_rate': None,
+                    'temperature': None,
+                    'has_image': False
+                }
+                if insert_device(new_device):
+                    logger.info(f"✓ Auto-created device {device_id} from TTN data")
+                    device = get_device(device_id)
+                else:
+                    logger.error(f"Failed to auto-create device {device_id}")
+                    return
             
             # Update last uplink time in database
             update_device_uplink(device_id, metadata['timestamp'])

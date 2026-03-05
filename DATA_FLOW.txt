@@ -1,0 +1,297 @@
+================================================================================
+ELDERLY HOME MONITORING SYSTEM - DATA FLOW DOCUMENTATION
+Single Source of Truth: TTN API Responses Only
+================================================================================
+
+ARCHITECTURE PRINCIPLES
+=======================
+
+1. NO HARD-CODED DUMMY DATA
+   - All initial device data has been removed
+   - Only real TTN data is used in the system
+   - Single source of truth: The Things Network MQTT API
+
+2. DYNAMIC DEVICE CREATION
+   - Devices are NOT pre-populated in the database
+   - Devices are created automatically on their FIRST message from TTN
+   - Device metadata is extracted from TTN uplink messages
+   - Initial position: facility center (15m, 20m, 1.2m)
+   - Final position: calculated from RSSI trilateration
+
+3. INFRASTRUCTURE NODES (PERSISTENT)
+   - Gateway: Center (15, 20, 2.5m) - provides trilateration reference
+   - SN1: East (20, 20, 1.5m) - RSSI anchor
+   - SN2: Northwest (12.5, 24.33, 1.5m) - RSSI anchor  
+   - SN3: Southwest (12.5, 15.67, 1.5m) - RSSI anchor
+   These are configured during database initialization and are infrastructure
+
+
+DATA FLOW DIAGRAM
+=================
+
+                    THE THINGS NETWORK
+                          |
+                    MQTT Uplink Messages
+                          |
+                          v
+                  ttn_integration.py
+                          |
+         +--------+--------+--------+
+         |        |        |        |
+         v        v        v        v
+      [Parse Device Info] [Buffer RSSI] [Extract RSSI] [Trigger TTN Callback]
+         |        |        |        |
+         +--------+--------+--------+
+                          |
+                          v
+              on_ttn_message() callback
+                          |
+                          v
+         device_manager.handle_uplink_message()
+                          |
+         +--------+--------+--------+
+         |        |        |        |
+         v        v        v        v
+    [Check Device]    [Buffer RSSI]  [Process Payload]  [Store RSSI]
+         |
+    NOT EXISTS?
+         |
+    YES: AUTO-CREATE
+         |
+         v
+    insert_device()
+    (device_id, patient_id=device_id, room=Unknown, location=center)
+         |
+         v
+    DATABASE (devices table)
+         |
+         v
+    [Collect RSSI from (≥3 anchors)]
+         |
+         v
+    AUTO-LOCALIZATION TRIGGERS
+         |
+         v
+    trilateration.calculate_position()
+         |
+    Uses: Location of 4 anchors + RSSI from each
+         |
+         v
+    CALCULATED POSITION (x, y, z)
+         |
+         v
+    update_device_location()
+         |
+         v
+    DATABASE (devices.location_x/y/z)
+         |
+         v
+    [Dashboard auto-refresh shows real position]
+
+
+MESSAGE TYPES FROM TTN
+========================
+
+1. Direct RSSI from End Device
+   Type: 'RSSI'
+   Source: Device sends RSSI reading to gateway
+   Processing: Store in RSSI buffer, trigger auto-localization
+
+2. Forwarded RSSI from Stationary Node
+   Type: 'FORWARDED_RSSI'
+   Source: Stationary node forwards RSSI from another device
+   Processing: Auto-create original device if new, buffer RSSI, trigger localization
+
+3. Health Metrics
+   Type: 'HEALTH'
+   Source: Device sends heart rate + temperature
+   Processing: Update device health metrics
+
+4. Image Data
+   Type: 'IMAGE'
+   Source: Device sends captured image
+   Processing: Store image file, update device.has_image flag
+
+
+DATABASE INITIALIZATION
+=======================
+
+init_db.py (Run once at startup):
+
+1. Creates database schema:
+   - devices (empty initially)
+   - rssi_readings (empty initially)  
+   - stationary_nodes (4 anchors pre-configured)
+   - device_images (empty initially)
+
+2. Inserts infrastructure nodes ONLY:
+   - gateway
+   - sn1, sn2, sn3
+
+3. NO end devices are created
+   → Devices will be created dynamically when they send their first message
+
+
+DEVICE LIFECYCLE
+================
+
+Stage 1: DEVICE UNKNOWN (not in system)
+   - Device: sending RSSI messages via TTN
+   - System: doesn't know about it
+   
+   ↓ TTN UPLINK MESSAGE ARRIVES
+   
+Stage 2: DEVICE CREATED
+   - Trigger: First message from device via TTN
+   - Action: device_manager auto-creates device entry
+   - Initial state:
+     * patient_name = device_id (e.g., "ed-1")
+     * room = "Unknown"
+     * location = (15, 20, 1.2) [facility center]
+     * battery_level = 0
+     * status = "unknown"
+   
+   ↓ RSSI COLLECTED FROM MULTIPLE ANCHORS
+   
+Stage 3: POSITION CALCULATED
+   - Trigger: ≥3 RSSI readings from different anchors buffered
+   - Action: auto_localize = True triggers trilateration
+   - Result: Real position calculated from RSSI path loss
+   - Update: device.location_x, location_y, location_z updated
+   
+   ↓ DASHBOARD REFRESH
+   
+Stage 4: POSITION DISPLAYED
+   - Device shown on 3D visualization
+   - Position updated in device list
+   - RSSI strength visualization
+   - Localization status shown
+
+
+UPDATING DEVICE METADATA
+=========================
+
+Initial metadata (from TTN only):
+- device_id (from MQTT topic)
+- patient_name (defaults to device_id)
+- room (defaults to "Unknown")
+
+To update patient info, use API endpoint:
+POST /api/device-metadata/<device_id>
+{
+  "patient_name": "Margaret Smith",
+  "room": "101"
+}
+
+To update device location (after RSSI trilateration):
+AUTO: Triggered by auto_localize=True (system manages this)
+MANUAL: POST /api/localize/<device_id> (triggers location beacon)
+
+
+VERIFICATION: NO DUMMY DATA
+=============================
+
+Historical dummy device data that was REMOVED:
+✗ Margaret Smith (ed-1)
+✗ John Anderson (ed-2)
+✗ Evelyn Roberts (ed-3)
+✗ Robert Chen (ed-4)
+
+Files cleaned:
+✓ init_db.py - REMOVED INITIAL_DEVICES array
+✓ device_manager.py - UPDATED to auto-create devices
+✓ Code base - NO hard-coded device entries
+
+
+SINGLE SOURCE OF TRUTH FLOW
+============================
+
+1. Device connects to TTN → Sends RSSI
+2. TTN broker → Forwards to Application Server
+3. ttn_integration.py → Receives MQTT message
+4. Extracts device_id from topic
+5. Extracts RSSI from payload
+6. Calls device_manager.handle_uplink_message()
+7. Device auto-created if new (from TTN data only)
+8. RSSI stored in database
+9. When ≥3 anchors have RSSI:
+   → Trilateration calculates position
+   → Position updated in database
+10. Dashboard pulls from database (real data)
+11. 3D visualization shows real positions
+12. User sees ONLY calculated/real data, never dummy data
+
+
+CONFIGURATION FILES
+====================
+
+Anchor positions (infrastructure):
+- ttn_integration.py: _get_default_anchors()
+- app.py: FACILITY_ANCHORS
+
+To change facility:
+1. Update anchor coordinates in app.py
+2. Restart application
+3. New RSSI measurements will use new anchor positions
+
+To change localization parameters:
+- ttn_integration.py: RSSIToDistance class
+  * TX_POWER = -40 dBm
+  * PATH_LOSS_EXPONENT = 2.5 (tune for your environment)
+
+
+TESTING THE SYSTEM
+===================
+
+1. Initialize database:
+   python init_db.py
+
+2. Start application:
+   python app.py
+
+3. TTN will start receiving uplink messages
+
+4. Dashboard loads:
+   http://localhost:5000
+
+5. As devices send messages:
+   - They appear in device list (auto-created)
+   - RSSI readings collected
+   - Position calculated automatically
+   - Position updates on visualization
+
+No dummy data required at any stage!
+
+
+DEBUGGING
+==========
+
+To verify no dummy data is being used:
+
+1. Check database:
+   SELECT COUNT(*) FROM devices;
+   (Should be 0 after init_db, increases only as real devices send messages)
+
+2. Check logs:
+   "Creating new device from TTN: ed-X" messages show real devices being added
+
+3. Check RSSI time series:
+   SELECT device_id, COUNT(*) FROM rssi_readings GROUP BY device_id;
+   (Shows only real RSSI measurements from TTN)
+
+4. Verify positions:
+   SELECT device_id, location_x, location_y, location_z FROM devices;
+   (Initial: 15, 20, 1.2 | After RSSI collection: real trilaterated positions)
+
+
+CONCLUSION
+===========
+
+✓ Single source of truth: THE THINGS NETWORK API
+✓ No hard-coded dummy data
+✓ Devices created dynamically from real TTN messages
+✓ Positions calculated from real RSSI measurements
+✓ Auto-localization triggers when sufficient data collected
+✓ Dashboard displays only real, calculated data
+
+This architecture ensures data integrity and real-world accuracy!
