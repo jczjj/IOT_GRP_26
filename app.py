@@ -8,7 +8,7 @@ from datetime import datetime
 import json
 import os
 import logging
-from ttn_integration import get_ttn_client, TTNClient
+from ttn_integration import get_ttn_client, TTNClient, AnchorPoint
 from device_manager import get_device_manager, DeviceManager
 from database import init_database
 
@@ -35,12 +35,25 @@ logger.info("✓ Database initialized")
 # Initialize device manager
 device_manager: DeviceManager = get_device_manager(UPLOAD_FOLDER)
 
+# Configure anchor points for RSSI trilateration (30m × 40m facility)
+# Gateway at center, 3 SNs forming equilateral triangle 5m away, 1m lower
+FACILITY_ANCHORS = {
+    'gateway': AnchorPoint('gateway', 'LoRaWAN Gateway (Center)', 15.0, 20.0, 2.5),
+    'sn1': AnchorPoint('sn1', 'Stationary Node 1 (East)', 20.0, 20.0, 1.5),
+    'sn2': AnchorPoint('sn2', 'Stationary Node 2 (Northwest)', 12.5, 24.33, 1.5),
+    'sn3': AnchorPoint('sn3', 'Stationary Node 3 (Southwest)', 12.5, 15.67, 1.5)
+}
+
 # Initialize TTN client with callback
 def on_ttn_message(device_id: str, payload_data: dict, metadata: dict):
     """Callback for TTN uplink messages"""
     device_manager.handle_uplink_message(device_id, payload_data, metadata)
 
-ttn_client: TTNClient = get_ttn_client(on_message_callback=on_ttn_message)
+ttn_client: TTNClient = get_ttn_client(
+    on_message_callback=on_ttn_message,
+    anchors=FACILITY_ANCHORS,
+    auto_localize=True
+)
 
 # Start TTN client
 logger.info("Starting TTN MQTT client...")

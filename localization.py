@@ -362,16 +362,17 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
     
     # Define test anchors (30m × 40m facility)
+    # Gateway at center, 3 SNs forming equilateral triangle 5m away, 1m lower
     anchors = {
-        'gateway': AnchorPoint('gateway', 'Gateway', 0, 0, 2.5),
-        'sn1': AnchorPoint('sn1', 'Anchor 1', 30, 0, 2.5),
-        'sn2': AnchorPoint('sn2', 'Anchor 2', 15, 40, 2.5),
-        'sn3': AnchorPoint('sn3', 'Anchor 3', 15, 20, 0.5)
+        'gateway': AnchorPoint('gateway', 'Gateway (Center)', 15.0, 20.0, 2.5),
+        'sn1': AnchorPoint('sn1', 'Anchor 1 (East)', 20.0, 20.0, 1.5),
+        'sn2': AnchorPoint('sn2', 'Anchor 2 (NW)', 12.5, 24.33, 1.5),
+        'sn3': AnchorPoint('sn3', 'Anchor 3 (SW)', 12.5, 15.67, 1.5)
     }
     
-    # Test case: device at (15, 15, 1.2)
+    # Test case: device at (15, 20, 1.2) - facility center
     # Calculate expected RSSI from each anchor
-    test_position = np.array([15, 15, 1.2])
+    test_position = np.array([15, 20, 1.2])
     rssi_readings = {}
     
     for node_id, anchor in anchors.items():
