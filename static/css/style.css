@@ -500,6 +500,53 @@ header p {
     }
 }
 
+/* Code and Technical Elements */
+code {
+    background: var(--bg-dark);
+    color: var(--primary-color);
+    padding: 0.2rem 0.4rem;
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.95em;
+}
+
+.detail-table code {
+    background: rgba(78, 205, 196, 0.15);
+    color: #4ecdc4;
+}
+
+/* Enhanced Modal for Localization */
+.detail-section {
+    margin-bottom: 1.5rem;
+    padding: 0.5rem 0;
+}
+
+.detail-section.full-width {
+    grid-column: 1 / -1;
+}
+
+.detail-grid > div > h3::before {
+    content: '';
+    display: inline-block;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    margin-right: 0.5rem;
+}
+
+/* Localization Status Indicator */
+.badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.85em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Responsive devices */
 @media (max-width: 768px) {
     .detail-grid {
         grid-template-columns: 1fr;
