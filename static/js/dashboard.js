@@ -8,17 +8,31 @@ let topology3d;
 let selectedDevice = null;
 let dataRefreshInterval = null;
 let autoLocalizeInterval = null;
+let jobConsoleVisible = false;
+let deviceModalPollInterval = null;
 
 // Initialize dashboard on page load
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize 3D topology
-    topology3d = new Topology3D('canvas-container');
-    
+    try {
+        topology3d = new Topology3D('canvas-container');
+    } catch (e) {
+        console.error('Error initializing Topology3D:', e);
+    }
+
     // Load initial data
-    loadData();
-    
-    // Set up event listeners
-    setupEventListeners();
+    try {
+        loadData();
+    } catch (e) {
+        console.error('Error loading initial data:', e);
+    }
+
+    // Set up event listeners (defensive)
+    try {
+        setupEventListeners();
+    } catch (e) {
+        console.error('Error setting up event listeners:', e);
+    }
     
     // Auto-refresh data every 15 seconds
     dataRefreshInterval = setInterval(loadData, 15000);
@@ -38,6 +52,44 @@ function setupEventListeners() {
         loadData();
         showToast('Fetching real-time positions...', 'info');
     });
+
+    // Update all locations button
+    const updateAllBtn = document.getElementById('updateAllLocationsBtn');
+    if (updateAllBtn) {
+        updateAllBtn.addEventListener('click', () => {
+            updateAllLocations();
+        });
+    }
+
+    // Job console close
+    const closeJobConsole = document.getElementById('closeJobConsole');
+    if (closeJobConsole) {
+        closeJobConsole.addEventListener('click', () => {
+            document.getElementById('jobConsole').style.display = 'none';
+            jobConsoleVisible = false;
+        });
+    }
+    
+    // Jobs menu button to reopen console and list jobs
+    const jobsMenuBtn = document.getElementById('jobsMenuBtn');
+    if (jobsMenuBtn) {
+        jobsMenuBtn.addEventListener('click', async () => {
+            try {
+                const resp = await fetch('/api/update-all-locations/jobs');
+                const data = await resp.json();
+                if (data.success) {
+                    document.getElementById('jobConsole').style.display = 'block';
+                    jobConsoleVisible = true;
+                    renderJobsList(data.jobs);
+                } else {
+                    showToast('Failed to fetch jobs list', 'error');
+                }
+            } catch (e) {
+                console.error('Error fetching jobs list:', e);
+                showToast('Error fetching jobs list', 'error');
+            }
+        });
+    }
     
     // Modal close button
     document.querySelector('.close').addEventListener('click', () => {
@@ -227,6 +279,39 @@ function createDeviceCard(device) {
         </div>
     `;
     
+    // Add inline logs container (will be populated asynchronously)
+    const logsContainer = document.createElement('div');
+    logsContainer.className = 'device-card-logs';
+    logsContainer.style.marginTop = '8px';
+    logsContainer.style.fontSize = '0.85rem';
+    logsContainer.style.color = 'var(--text-gray)';
+    logsContainer.innerHTML = '<div class="logs-loading">Loading logs...</div>';
+    card.appendChild(logsContainer);
+
+    // Fetch recent device job logs and render a short snippet
+    (async () => {
+        try {
+            const resp = await fetch(`/api/device-job-status/${device.id}`);
+            const data = await resp.json();
+            if (data.success && Array.isArray(data.device_jobs) && data.device_jobs.length > 0) {
+                // Gather logs from latest job entry
+                const latest = data.device_jobs[0];
+                const logs = latest.device_logs || [];
+                if (logs.length === 0) {
+                    logsContainer.innerHTML = '<div style="color:var(--text-muted)">No recent job logs</div>';
+                } else {
+                    const snippet = logs.slice(-3).map(l => `<div class="device-log-line">${escapeHtml(l)}</div>`).join('');
+                    logsContainer.innerHTML = `<div style="font-weight:600;margin-bottom:4px;">Recent Logs</div>${snippet}`;
+                }
+            } else {
+                logsContainer.innerHTML = '<div style="color:var(--text-muted)">No job activity</div>';
+            }
+        } catch (e) {
+            logsContainer.innerHTML = '<div style="color:var(--text-danger)">Error loading logs</div>';
+            console.debug('Error fetching device job logs:', e);
+        }
+    })();
+
     return card;
 }
 
@@ -286,6 +371,11 @@ function showDeviceDetails(device) {
                         <td>${device.wifi_capable ? '✓ Yes' : '✗ No'}</td>
                     </tr>
                 </table>
+            </div>
+
+            <div class="detail-section">
+                <h3>Job Status</h3>
+                <div id="deviceJobStatus">Loading...</div>
             </div>
             
             <div class="detail-section">
@@ -356,34 +446,147 @@ function showDeviceDetails(device) {
     viewImageBtn.style.display = device.has_image ? 'inline-block' : 'none';
     
     modal.style.display = 'block';
+
+    // Start polling for live device updates (RSSI and job status)
+    startDeviceModalPolling(device.id);
 }
 
 function closeModal() {
     const modal = document.getElementById('deviceModal');
     modal.style.display = 'none';
     selectedDevice = null;
+    stopDeviceModalPolling();
+}
+
+
+function startDeviceModalPolling(deviceId) {
+    // clear any existing
+    stopDeviceModalPolling();
+    // poll device info and job status every 2 seconds while modal open
+    deviceModalPollInterval = setInterval(async () => {
+        try {
+            // refresh device details (RSSI etc.)
+            const resp = await fetch(`/api/device/${deviceId}`);
+            const d = await resp.json();
+            if (d.success && d.device) {
+                // update selectedDevice and modal contents
+                selectedDevice = d.device;
+                // only update RSSI and small fields to avoid flicker
+                updateModalRSSIAndStatus(d.device);
+            }
+
+            // fetch device job statuses
+            const jresp = await fetch(`/api/device-job-status/${deviceId}`);
+            const jdata = await jresp.json();
+            if (jdata.success) {
+                renderDeviceJobStatus(jdata.device_jobs);
+            }
+        } catch (e) {
+            console.error('Error polling device modal data:', e);
+        }
+    }, 2000);
+}
+
+
+function stopDeviceModalPolling() {
+    if (deviceModalPollInterval) {
+        clearInterval(deviceModalPollInterval);
+        deviceModalPollInterval = null;
+    }
+}
+
+
+function updateModalRSSIAndStatus(device) {
+    try {
+        // update RSSI readings table if present
+        const rssiReadings = device.rssi_readings || {};
+        const rssiTable = document.querySelector('#modalBody .detail-section.full-width .detail-table');
+        if (rssiTable) {
+            // rebuild RSSI rows
+            const rows = Object.entries(rssiReadings).map(([node, rssi]) => {
+                const distance = estimateDistance(rssi);
+                return `<tr><td><strong>${node.toUpperCase()}:</strong></td><td><code>${rssi}</code> dBm <span style="color: #999; font-size: 0.9em;">(${getRSSIStrength(rssi)} ~ ${distance.toFixed(1)}m)</span></td></tr>`;
+            }).join('');
+            rssiTable.querySelector('tbody')?.remove();
+            // simple approach: find parent and replace innerHTML for RSSI block
+            const rssiSection = Array.from(document.querySelectorAll('#modalBody .detail-section.full-width')).find(sec => sec.innerHTML.includes('RSSI Readings'));
+            if (rssiSection) {
+                // rebuild the table html
+                const tableHtml = `<table class="detail-table">${rows}</table>`;
+                // replace the section's innerHTML but preserve header
+                const header = '<h3>📡 RSSI Readings from Anchors</h3>';
+                rssiSection.innerHTML = header + tableHtml + (Object.keys(rssiReadings).length === 0 ? '<p style="color: #ff9800; padding: 10px;">No RSSI data yet. Trigger location request to collect RSSI readings.</p>' : '');
+            }
+        }
+        // update basic status/battery in modal (if present)
+        const statusBadges = document.querySelectorAll('#modalBody .badge');
+        if (statusBadges && statusBadges.length>0) {
+            // replace first badge text with status
+            statusBadges[0].textContent = device.status || 'unknown';
+        }
+    } catch (e) {
+        // non-fatal
+        console.debug('Error updating modal RSSI/status:', e);
+    }
+}
+
+
+function renderDeviceJobStatus(deviceJobs) {
+    const container = document.getElementById('deviceJobStatus');
+    if (!container) return;
+    if (!deviceJobs || deviceJobs.length === 0) {
+        container.innerHTML = '<div style="color:var(--text-gray)">No active jobs</div>';
+        return;
+    }
+    // Render each job affecting this device. Show device-specific status prominently,
+    // with the overall job status and timestamps secondary.
+    const html = deviceJobs.map(j => {
+        const logs = (j.device_logs || []).slice(-6).map(l => `<div class="job-log">${escapeHtml(l)}</div>`).join('');
+        const deviceStatus = j.device_status || '—';
+        const jobStatus = j.job_status || '—';
+        const reqAt = j.requested_at ? `Requested: ${j.requested_at}` : '';
+        const doneAt = j.completed_at ? `Completed: ${j.completed_at}` : '';
+
+        return `
+            <div style="padding:8px;background:var(--bg-light);border-radius:6px;margin-bottom:8px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div style="font-weight:700;">Device Status: <span style="color:var(--primary-color);">${escapeHtml(deviceStatus)}</span></div>
+                    <div style="font-size:0.85rem;color:var(--text-gray);">Job: ${escapeHtml(j.job_id)} • ${escapeHtml(jobStatus)}</div>
+                </div>
+                <div style="font-size:0.85rem;color:var(--text-gray);margin-top:6px;">${escapeHtml(reqAt)} ${escapeHtml(doneAt)}</div>
+                <div style="margin-top:8px;">${logs || '<div style="color:var(--text-gray)">No device logs yet</div>'}</div>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = html;
 }
 
 async function triggerLocalization(deviceId) {
     try {
-        showToast('Sending location request to device...', 'info');
-        
-        // Send command to device to broadcast RSSI ping
-        const response = await fetch(`/api/locate/${deviceId}`, {
-            method: 'POST'
+        showToast('Starting device locate job...', 'info');
+
+        // Create a per-device locate job which will be tracked separately
+        const response = await fetch(`/api/locate-job/${deviceId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ timeout: 30 })
         });
         const data = await response.json();
-        
-        if (data.success) {
-            showToast(`Location beacon sent! Collecting RSSI data... (waiting ${data.collect_timeout || 30}s)`, 'success');
-            
-            // Refresh data after collection period to trigger auto-localization
-            setTimeout(() => {
-                showToast('Calculating position from RSSI data...', 'info');
-                loadData();
-            }, (data.collect_timeout || 30) * 1000);
+
+        if (data.success && data.job_id) {
+            showToast(`Locate job started (id: ${data.job_id}). Waiting for RSSI...`, 'success');
+            // Ensure modal shows job status (modal polling will pick up the new job within next poll)
+            // Force an immediate device-job-status fetch and render
+            try {
+                const jresp = await fetch(`/api/device-job-status/${deviceId}`);
+                const jdata = await jresp.json();
+                if (jdata.success) renderDeviceJobStatus(jdata.device_jobs);
+            } catch (e) {
+                console.debug('Could not fetch job immediately:', e);
+            }
         } else {
-            showToast('Failed to send location request: ' + data.error, 'error');
+            showToast('Failed to start locate job: ' + (data.error || 'unknown'), 'error');
         }
     } catch (error) {
         console.error('Error triggering localization:', error);
@@ -415,6 +618,179 @@ async function requestImage(deviceId) {
         console.error('Error requesting image:', error);
         showToast('Error requesting image', 'error');
     }
+}
+
+async function updateAllLocations() {
+    try {
+        showToast('Queued update for all devices — starting...', 'info', 3000);
+
+        // Show console immediately so user sees progress area and mark it visible
+        const jobConsole = document.getElementById('jobConsole');
+        if (jobConsole) {
+            jobConsole.style.display = 'block';
+            jobConsoleVisible = true;
+            const body = document.getElementById('jobConsoleBody');
+            if (body) body.innerHTML = `<div>Starting update job... awaiting server response</div>`;
+        }
+
+        const response = await fetch('/api/update-all-locations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ timeout: 60 })
+        });
+
+        const data = await response.json();
+        if (!data.success || !data.job_id) {
+            showToast('Failed to start update job', 'error');
+            return;
+        }
+
+        const jobId = data.job_id;
+        showToast(`Update job started (id: ${jobId}). Polling status...`, 'info', 3000);
+
+        // Poll job status until done/failed
+        const pollInterval = 1000;
+        const poll = setInterval(async () => {
+            try {
+                const stResp = await fetch(`/api/update-all-locations/status/${jobId}`);
+                const stData = await stResp.json();
+                if (!stData.success) {
+                    showToast('Failed to fetch job status', 'error');
+                    clearInterval(poll);
+                    return;
+                }
+
+                const job = stData.job;
+                try {
+                    renderJobConsole(jobId, job);
+                    if (jobConsoleVisible) {
+                        document.getElementById('jobConsole').style.display = 'block';
+                    }
+                } catch (e) {
+                    console.error('Error rendering job console:', e);
+                }
+
+                if (job.status === 'in_progress' || job.status === 'queued') {
+                    // in progress — rendering above
+                } else if (job.status === 'done') {
+                    clearInterval(poll);
+                    const updated = (job.updated_devices || []).length;
+                    const pending = (job.pending_devices || []).length;
+                    showToast(`Update complete. Updated: ${updated}, Pending: ${pending}`, 'success', 5000);
+                    setTimeout(() => loadData(), 1200);
+                } else if (job.status === 'failed') {
+                    clearInterval(poll);
+                    showToast(`Update failed: ${job.error || 'unknown'}`, 'error', 7000);
+                    setTimeout(() => loadData(), 1200);
+                }
+            } catch (err) {
+                console.error('Error polling job status:', err);
+                clearInterval(poll);
+                showToast('Error polling job status', 'error');
+            }
+        }, pollInterval);
+    } catch (err) {
+        console.error('Error updating all locations:', err);
+        showToast('Error initiating update for all devices', 'error');
+    }
+}
+
+
+function renderJobConsole(jobId, job) {
+    const body = document.getElementById('jobConsoleBody');
+    if (!body) return;
+    // Header + progress
+    const total = (job.device_ids || []).length;
+    const updatedCount = (job.updated_devices || []).length;
+    const percent = total > 0 ? Math.round((updatedCount / total) * 100) : 0;
+
+    const header = `
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div><strong>Job ID:</strong> ${jobId}</div>
+            <div><strong>Status:</strong> ${job.status}</div>
+        </div>
+        <div style="margin-top:6px;font-size:0.9rem;color:var(--text-gray);">Requested: ${job.requested_at} &nbsp; • &nbsp; Timeout: ${job.timeout_seconds}s</div>
+        <div style="margin-top:8px;">
+            <div class="progress" style="background:var(--bg-light);border-radius:6px;height:14px;overflow:hidden;">
+                <div class="progress-bar" style="width:${percent}%;height:14px;background:linear-gradient(90deg,var(--primary-color),#3dbdb5);"></div>
+            </div>
+            <div style="font-size:0.85rem;color:var(--text-gray);margin-top:6px;">${updatedCount}/${total} devices updated — ${percent}%</div>
+        </div>
+        <hr/>
+    `;
+
+    // Devices table (compact)
+    let devicesHtml = '<table class="job-table"><thead><tr><th>Device</th><th>Status</th><th>Last Updated</th></tr></thead><tbody>';
+    const devices = job.devices || {};
+    Object.keys(devices).forEach(did => {
+        const dev = devices[did] || {};
+        devicesHtml += `<tr><td>${did}</td><td>${dev.status || '—'}</td><td>${dev.last_updated || '—'}</td></tr>`;
+    });
+    devicesHtml += '</tbody></table>';
+
+    // Job-level logs
+    const jobLogs = (job.logs || []).slice(-20).map(l => `<div class="job-log">${escapeHtml(l)}</div>`).join('');
+
+    // Expandable per-device logs area
+    const deviceLogs = Object.keys(devices).map(did => {
+        const dev = devices[did] || {};
+        const logs = (dev.logs || []).map(l => `<div class="job-log">${escapeHtml(l)}</div>`).join('');
+        return `<div style="margin-bottom:8px;"><strong>${did}</strong><div style="margin-top:6px;">${logs || '<span style="color:var(--text-gray)">No logs</span>'}</div></div>`;
+    }).join('');
+
+    body.innerHTML = header + devicesHtml + '<hr/>' + `<div class="job-logs"><h4>Job Logs</h4>${jobLogs}</div>` + '<hr/>' + `<div><h4>Device Logs</h4>${deviceLogs}</div>`;
+}
+
+
+function renderJobsList(jobs) {
+    const body = document.getElementById('jobConsoleBody');
+    if (!body) return;
+    if (!Array.isArray(jobs) || jobs.length === 0) {
+        body.innerHTML = '<div>No jobs found.</div>';
+        return;
+    }
+
+    let html = '<div style="display:flex;flex-direction:column;gap:8px;">';
+    jobs.sort((a,b) => (b.requested_at||'').localeCompare(a.requested_at||''));
+    jobs.forEach(j => {
+        html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px;background:var(--bg-light);border-radius:6px;">
+            <div>
+                <div style="font-weight:700">${j.job_id}</div>
+                <div style="font-size:0.85rem;color:var(--text-gray)">${j.status} • ${j.updated_count || 0}/${j.num_devices || 0} • ${j.requested_at || ''}</div>
+            </div>
+            <div>
+                <button class="btn btn-primary" onclick="openJob('${j.job_id}')">Open</button>
+            </div>
+        </div>`;
+    });
+    html += '</div>';
+    body.innerHTML = html;
+}
+
+async function openJob(jobId) {
+    try {
+        const resp = await fetch(`/api/update-all-locations/status/${jobId}`);
+        const data = await resp.json();
+        if (data.success) {
+            document.getElementById('jobConsole').style.display = 'block';
+            jobConsoleVisible = true;
+            renderJobConsole(jobId, data.job);
+        } else {
+            showToast('Failed to open job', 'error');
+        }
+    } catch (e) {
+        console.error('Error opening job:', e);
+        showToast('Error opening job', 'error');
+    }
+}
+
+function escapeHtml(unsafe) {
+    return unsafe
+         .replace(/&/g, "&amp;")
+         .replace(/</g, "&lt;")
+         .replace(/>/g, "&gt;")
+         .replace(/"/g, "&quot;")
+         .replace(/'/g, "&#039;");
 }
 
 // Helper functions

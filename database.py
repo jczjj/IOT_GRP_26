@@ -53,6 +53,7 @@ def init_database(db_path: str = DB_PATH):
             status TEXT DEFAULT 'unknown',
             wifi_capable BOOLEAN DEFAULT 0,
             last_uplink TIMESTAMP,
+            last_updated TIMESTAMP,
             heart_rate INTEGER,
             temperature REAL,
             has_image BOOLEAN DEFAULT 0,
@@ -122,6 +123,20 @@ def init_database(db_path: str = DB_PATH):
     
     logger.info(f"Database initialized at {DB_PATH}")
 
+    # Ensure legacy databases get the new column
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(devices)")
+        cols = [r[1] for r in cursor.fetchall()]
+        if 'last_updated' not in cols:
+            logger.info('Adding missing column "last_updated" to devices table')
+            cursor.execute("ALTER TABLE devices ADD COLUMN last_updated TIMESTAMP")
+            conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"Could not migrate devices table to add last_updated: {e}")
+
 
 def insert_device(device_data: Dict[str, Any]) -> bool:
     """Insert or update a device"""
@@ -132,9 +147,9 @@ def insert_device(device_data: Dict[str, Any]) -> bool:
         cursor.execute('''
             INSERT INTO devices (
                 device_id, patient_name, room, location_x, location_y, location_z,
-                battery_level, status, wifi_capable, last_uplink, 
-                heart_rate, temperature, has_image, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                battery_level, status, wifi_capable, last_uplink, last_updated,
+                heart_rate, temperature, has_image
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(device_id) DO UPDATE SET
                 patient_name=excluded.patient_name,
                 room=excluded.room,
@@ -145,6 +160,7 @@ def insert_device(device_data: Dict[str, Any]) -> bool:
                 status=excluded.status,
                 wifi_capable=excluded.wifi_capable,
                 last_uplink=excluded.last_uplink,
+                last_updated=excluded.last_updated,
                 heart_rate=excluded.heart_rate,
                 temperature=excluded.temperature,
                 has_image=excluded.has_image,
@@ -160,6 +176,7 @@ def insert_device(device_data: Dict[str, Any]) -> bool:
             device_data.get('status', 'unknown'),
             device_data.get('wifi_capable', False),
             device_data.get('last_uplink'),
+            device_data.get('last_updated'),
             device_data.get('heart_rate'),
             device_data.get('temperature'),
             device_data.get('has_image', False)
@@ -248,7 +265,7 @@ def update_device_location(device_id: str, x: float, y: float, z: float) -> bool
         
         cursor.execute('''
             UPDATE devices 
-            SET location_x = ?, location_y = ?, location_z = ?, updated_at = CURRENT_TIMESTAMP
+            SET location_x = ?, location_y = ?, location_z = ?, last_updated = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
             WHERE device_id = ?
         ''', (x, y, z, device_id))
         
@@ -303,6 +320,36 @@ def update_device_uplink(device_id: str, timestamp: str) -> bool:
     except Exception as e:
         logger.error(f"Error updating uplink for {device_id}: {e}")
         return False
+
+
+def get_device_last_updated(device_id: str) -> Optional[str]:
+    """Return the last_updated timestamp string for a device or None"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT last_updated FROM devices WHERE device_id = ?', (device_id,))
+        row = cursor.fetchone()
+        if row and row['last_updated']:
+            return row['last_updated']
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching last_updated for {device_id}: {e}")
+        return None
+
+
+def get_device_last_uplink(device_id: str) -> Optional[str]:
+    """Return the last_uplink timestamp string for a device or None"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT last_uplink FROM devices WHERE device_id = ?', (device_id,))
+        row = cursor.fetchone()
+        if row and row['last_uplink']:
+            return row['last_uplink']
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching last_uplink for {device_id}: {e}")
+        return None
 
 
 def update_device_health(device_id: str, heart_rate: Optional[int], temperature: Optional[float]) -> bool:
@@ -379,6 +426,44 @@ def get_latest_rssi_readings(device_id: str) -> Dict[str, Optional[int]]:
     except Exception as e:
         logger.error(f"Error getting RSSI readings for {device_id}: {e}")
         return {'gateway': None, 'sn1': None, 'sn2': None, 'sn3': None}
+
+
+def get_latest_rssi_with_timestamps(device_id: str) -> Dict[str, Dict[str, Optional[str]]]:
+    """Get the latest RSSI reading and timestamp for each node for a device.
+
+    Returns a dict mapping node_id -> {'rssi': int|None, 'timestamp': str|None}
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT node_id, rssi, timestamp
+            FROM rssi_readings r1
+            WHERE device_id = ?
+            AND timestamp = (
+                SELECT MAX(timestamp)
+                FROM rssi_readings r2
+                WHERE r2.device_id = r1.device_id
+                AND r2.node_id = r1.node_id
+            )
+        ''', (device_id,))
+
+        records = { 'gateway': {'rssi': None, 'timestamp': None},
+                    'sn1': {'rssi': None, 'timestamp': None},
+                    'sn2': {'rssi': None, 'timestamp': None},
+                    'sn3': {'rssi': None, 'timestamp': None} }
+
+        for row in cursor.fetchall():
+            records[row['node_id']] = {'rssi': row['rssi'], 'timestamp': row['timestamp']}
+
+        return records
+    except Exception as e:
+        logger.error(f"Error getting RSSI records for {device_id}: {e}")
+        return { 'gateway': {'rssi': None, 'timestamp': None},
+                 'sn1': {'rssi': None, 'timestamp': None},
+                 'sn2': {'rssi': None, 'timestamp': None},
+                 'sn3': {'rssi': None, 'timestamp': None} }
 
 
 def insert_stationary_node(node_data: Dict[str, Any]) -> bool:

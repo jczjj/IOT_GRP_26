@@ -46,7 +46,13 @@
             <div class="device-panel">
                 <div class="panel-header">
                     <h2>Patient Devices</h2>
-                    <span id="deviceCount" class="badge">0</span>
+                    <div class="panel-controls">
+                        <div style="display:flex; gap:0.5rem; align-items:center;">
+                            <button id="updateAllLocationsBtn" class="btn btn-primary">Update Location for all devices</button>
+                            <button id="jobsMenuBtn" class="btn btn-secondary">Jobs</button>
+                            <span id="deviceCount" class="badge">0</span>
+                        </div>
+                    </div>
                 </div>
                 <div id="deviceList" class="device-list">
                     <!-- Populated by JavaScript -->
@@ -72,6 +78,17 @@
 
         <!-- Notification Toast -->
         <div id="toast" class="toast"></div>
+        
+        <!-- Job Console Panel -->
+        <div id="jobConsole" class="job-console" style="display:none;">
+            <div class="job-console-header">
+                <h3>Update-All Job Console</h3>
+                <button id="closeJobConsole" class="btn btn-secondary">Close</button>
+            </div>
+            <div id="jobConsoleBody" class="job-console-body">
+                <!-- Filled by JS -->
+            </div>
+        </div>
     </div>
 
     <script src="{{ url_for('static', filename='js/topology3d.js') }}"></script>
