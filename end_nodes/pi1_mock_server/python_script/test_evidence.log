@@ -1,0 +1,6 @@
+[Tue 10 Mar 18:58:11 +08 2026] --- PI 1 RELAY START (V7.7) ---
+[Tue 10 Mar 18:58:11 +08 2026] Purging all existing pi_ related network profiles...
+Connection 'pi_01pi_01' (6b2dbf67-41c6-442b-9583-97b2c13c9ab9) successfully deleted.
+command failed: No such device (-19)
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/5)
+[Tue 10 Mar 18:58:16 +08 2026] Relay SSID 'pi_01pi_01' is now LIVE at 10.42.1.1
