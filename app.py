@@ -8,6 +8,7 @@ from datetime import datetime
 import json
 import os
 import logging
+import math  # Added for distance calculation
 from ttn_integration import get_ttn_client, TTNClient, AnchorPoint
 from device_manager import get_device_manager, DeviceManager
 from database import init_database
@@ -249,6 +250,7 @@ def update_rssi(device_id, node_id, rssi):
 def localize(device_id):
     """
     Calculate device location using RSSI-based trilateration.
+    Calculates 3D Euclidean distance from the Gateway using the localized coordinates.
     
     Retrieves latest RSSI readings from all anchor nodes and performs
     weighted least-squares trilateration to estimate device position.
@@ -260,9 +262,10 @@ def localize(device_id):
         {
             'success': bool,
             'position': {'x': float, 'y': float, 'z': float},
-            'residual_error': float,     # Fitting error in meters
-            'confidence': float,         # 0.0-1.0
-            'accuracy': float,           # Estimated accuracy
+            'distance_from_gateway': float,  # Distance in meters
+            'residual_error': float,         # Fitting error in meters
+            'confidence': float,             # 0.0-1.0
+            'accuracy': float,               # Estimated accuracy
             'num_measurements': int,
             'timestamp': str,
             'message': str
@@ -273,15 +276,29 @@ def localize(device_id):
     result = device_manager.localize_device(device_id, use_2d=use_2d)
     
     if result:
+        # Extract the device's newly estimated position
+        pos = result['position']
+        
+        # Get the Gateway's exact coordinates from your config
+        gateway = FACILITY_ANCHORS['gateway']
+        
+        # Calculate 3D Euclidean distance from Gateway
+        distance_from_gateway = math.sqrt(
+            (pos['x'] - gateway.x)**2 + 
+            (pos['y'] - gateway.y)**2 + 
+            (pos['z'] - gateway.z)**2
+        )
+        
         return jsonify({
             'success': True,
-            'position': result['position'],
+            'position': pos,
+            'distance_from_gateway': round(distance_from_gateway, 2),
             'residual_error': result['residual_error'],
             'confidence': result['confidence'],
             'accuracy': result['accuracy'],
             'num_measurements': result['num_measurements'],
             'timestamp': result['timestamp'],
-            'message': f"Device {device_id} localized successfully"
+            'message': f"Device {device_id} localized successfully. Distance from gateway: {round(distance_from_gateway, 2)}m"
         })
     else:
         return jsonify({
