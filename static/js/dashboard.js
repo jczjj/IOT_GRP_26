@@ -821,7 +821,7 @@ async function requestImage(deviceId) {
         const data = await response.json();
         
         if (data.success) {
-            showToast(`Image request sent! Relay path: ${data.relay_path.join(' → ')}. ETA: ${data.estimated_time}`, 'success', 5000);
+            showToast(`Image request sent! Relay path: ${data.path.join(' → ')}. ETA: ${data.estimated_time}`, 'success', 5000);
             
             // Update view image button after estimated time
             setTimeout(() => {

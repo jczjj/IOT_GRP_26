@@ -15,7 +15,7 @@ from anchor_layout import GATEWAY_NODE_ID
 from localization import get_default_anchors
 from ttn_integration import get_ttn_client, TTNClient
 from device_manager import get_device_manager, DeviceManager
-from database import init_database, get_device_last_updated, get_device_last_uplink, get_latest_rssi_with_timestamps
+from database import init_database, get_connection, get_device_last_updated, get_device_last_uplink, get_latest_rssi_with_timestamps
 
 
 # Configure logging
@@ -71,7 +71,7 @@ TARGET_NODE = ''  # We want to reach the gateway
 def find_best_path(database, target_node):
 	# Fetch all devices
 	cursor = database.cursor()
-	cursor.execute("SELECT device_id, x, y, z FROM devices")
+	cursor.execute("SELECT device_id, location_x, location_y, location_z FROM devices")
 	devices = cursor.fetchall()
 	# Build device map
 	device_map = {dev[0]: (dev[1], dev[2], dev[3]) for dev in devices}
@@ -103,7 +103,7 @@ def find_best_path(database, target_node):
 		# Always hop directly to origin if within MAX_DISTANCE
 		dist_to_origin = math.sqrt(sum((a-b)**2 for a,b in zip(device_map[node], device_map['origin'])))
 		if dist_to_origin <= MAX_DISTANCE and node != 'origin':
-			return (path[::-1] + ['origin'])
+			return (path[::-1])
 		
 		if node == end:
 			return path[::-1]
@@ -159,8 +159,15 @@ def get_device(device_id):
 @app.route('/api/request-image/<device_id>', methods=['POST'])
 def request_image(device_id):
     """
-    Trigger image capture from a specific device
-    This initiates the server-orchestrated Wi-Fi hopping process
+    Trigger image capture from a specific device.
+    Runs find_best_path to determine the relay chain, then sends a
+    structured downlink to each device in the path.
+
+    Payload format per device (3 bytes):
+      Byte 0: 0x02  (always)
+      Byte 1: number of remaining hops from this device (len(path) - index)
+      Byte 2: 0x00 for the first device (hotspot off / target),
+              0x01 for all subsequent relay devices (hotspot on)
     """
     # Check if device exists
     device = device_manager.get_device_by_id(device_id)
@@ -169,37 +176,44 @@ def request_image(device_id):
             'success': False,
             'error': 'Device not found'
         }), 404
-    
-    if not device.get('wifi_capable', False):
+
+    # Run find_best_path using the devices table in the database
+    conn = get_connection()
+    path = find_best_path(conn, device_id)
+    logger.info(f"Best path for {device_id}: {path}")
+
+    if not path:
         return jsonify({
             'success': False,
-            'error': 'Device does not support Wi-Fi connectivity'
-        }), 400
-    
-    # Calculate relay path
-    relay_path = device_manager.calculate_relay_path(device_id)
-    
-    # Send downlink command via TTN
-    success = ttn_client.send_image_capture_command(device_id)
-    
-    if success:
-        # If relay is needed, send Wi-Fi hotspot commands
-        if len(relay_path) > 2:  # More than just [device, gateway]
-            for relay_device_id in relay_path[1:-1]:  # Exclude first and last
-                ttn_client.send_wifi_hotspot_command(relay_device_id, enable=True)
-        
-        return jsonify({
-            'success': True,
-            'message': f'Image request sent to device {device_id}',
-            'device_id': device_id,
-            'relay_path': relay_path,
-            'estimated_time': f'{len(relay_path) * 3} seconds'
+            'error': 'Could not find a valid path to the gateway'
+        }), 500
+
+    # Send a downlink to every device in the path with the correct payload
+    results = []
+    total = len(path)
+    for i, target_dev in enumerate(path):
+        hotspot_byte = 0x01 if i == 0 else 0x00
+        hop_count_byte = total - i
+        payload = bytes([0x02, hop_count_byte, hotspot_byte])
+        success = ttn_client.send_downlink(target_dev, payload, fport=2)
+        results.append({
+            'device_id': target_dev,
+            'payload_hex': payload.hex(),
+            'success': success
         })
-    
+        logger.info(
+            f"Downlink to {target_dev}: payload={payload.hex()} success={success}"
+        )
+
+    all_ok = all(r['success'] for r in results)
     return jsonify({
-        'success': False,
-        'error': 'Failed to send downlink command to device'
-    }), 500
+        'success': all_ok,
+        'message': f'Image request sent along path for device {device_id}',
+        'device_id': device_id,
+        'path': path,
+        'downlinks': results,
+        'estimated_time': f'{total * 3} seconds'
+    }), 200 if all_ok else 500
 
 
 @app.route('/api/device/<device_id>/image')
