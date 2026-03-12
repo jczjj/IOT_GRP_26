@@ -29,9 +29,14 @@ function buildRssiSignature(device) {
     return entries.map(([nodeId, rssi]) => `${nodeId}:${rssi}`).join('|');
 }
 
+const ALL_ANCHOR_IDS = ['gateway', 'sn1', 'sn2', 'sn3'];
+
+function hasAllFreshRssi(rssiReadings) {
+    return ALL_ANCHOR_IDS.every(id => Number.isFinite((rssiReadings || {})[id]));
+}
+
 function shouldAutoLocalize(device) {
-    const validRssiCount = getValidRssiCount(device.rssi_readings);
-    if (validRssiCount < 3) {
+    if (!hasAllFreshRssi(device.rssi_readings)) {
         return false;
     }
 
@@ -300,8 +305,8 @@ function createDeviceCard(device) {
     
     // Calculate RSSI measurement count
     const rssiCount = getValidRssiCount(device.rssi_readings);
-    const localizationReady = rssiCount >= 3;
-    const readyIndicator = localizationReady ? '✓ Ready' : `${rssiCount}/3`;
+    const localizationReady = hasAllFreshRssi(device.rssi_readings);
+    const readyIndicator = localizationReady ? '✓ Ready' : `${rssiCount}/4`;
     const readyClass = localizationReady ? 'badge-success' : 'badge-warning';
     
     card.innerHTML = `
@@ -885,22 +890,21 @@ function getRSSIStrength(rssi) {
     return '(Critical)';
 }
 
+// Per-node RSSI calibration offsets — must mirror NODE_RSSI_CALIBRATION in anchor_layout.py
+const NODE_RSSI_CALIBRATION = {};  // cleared: base model now calibrated for this room
+
 function calibrateRssi(nodeId, rssi) {
-    if (nodeId === 'gateway') {
-        return rssi - 50;
-    }
-    return rssi;
+    return rssi + (NODE_RSSI_CALIBRATION[nodeId] || 0);
 }
 
 function estimateDistance(nodeId, rssi) {
     const calibratedRssi = calibrateRssi(nodeId, rssi);
     const referenceRssiAtOneMeter = -50;
-    const pathLossExponent = 2.2;
+    const pathLossExponent = 3.5;   // indoor same-floor small room
     const pathLoss = referenceRssiAtOneMeter - calibratedRssi;
     const distance = Math.pow(10, pathLoss / (10 * pathLossExponent));
-    
-    // Clamp to reasonable range
-    return Math.max(0.25, Math.min(50, distance));
+    // Clamp to room diagonal (15m x 15m => ~21m)
+    return Math.max(0.25, Math.min(21, distance));
 }
 
 function formatTimestamp(timestamp) {

@@ -68,7 +68,7 @@ class RSSIToDistance:
     REFERENCE_RSSI_AT_1_METER = REFERENCE_RSSI_AT_1_METER
     PATH_LOSS_EXPONENT = PATH_LOSS_EXPONENT
     MIN_DISTANCE = 0.25
-    MAX_DISTANCE = 50.0
+    MAX_DISTANCE = 21.0   # diagonal of 15 m × 15 m test room ≈ 21.2 m
 
     @staticmethod
     def rssi_to_distance(
@@ -232,7 +232,7 @@ def localize_device(
     device_id: str,
     rssi_readings: Dict[str, int],
     anchors: Optional[Dict[str, AnchorPoint]] = None,
-    use_2d: bool = False,
+    use_2d: bool = True,
     filter_outliers: bool = True,
 ) -> Optional[Dict[str, Any]]:
     anchors = anchors or get_default_anchors()
@@ -287,7 +287,7 @@ def calculate_coordinates_from_rssi(
     sn1_rssi: int,
     sn2_rssi: int,
     sn3_rssi: int,
-    use_2d: bool = False,
+    use_2d: bool = True,
 ) -> Optional[Dict[str, Any]]:
     return localize_device(
         device_id='manual-rssi-calculation',

@@ -335,7 +335,7 @@ class DeviceManager:
 
         return [device_id, 'gateway']
     
-    def localize_device(self, device_id: str, use_2d: bool = False) -> Optional[Dict[str, Any]]:
+    def localize_device(self, device_id: str, use_2d: bool = True) -> Optional[Dict[str, Any]]:
         """
         Calculate device location using RSSI trilateration.
         
@@ -368,6 +368,12 @@ class DeviceManager:
 
                 if not rssi_by_node:
                     logger.warning(f"No RSSI measurements found for {device_id}")
+                    return None
+
+                required_nodes = {'gateway', 'sn1', 'sn2', 'sn3'}
+                missing = required_nodes - rssi_by_node.keys()
+                if missing:
+                    logger.warning(f"Cannot localize {device_id}: missing RSSI from {sorted(missing)}")
                     return None
 
                 result = run_localization(
