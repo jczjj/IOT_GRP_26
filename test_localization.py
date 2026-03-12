@@ -4,11 +4,11 @@ RSSI Trilateration Test Script
 Demonstrates and tests the localization system with simulated and real data
 """
 
-import sys
 import math
 import logging
 from datetime import datetime
 import numpy as np
+from anchor_layout import FIXED_DEVICE_HEIGHT_METERS, REFERENCE_RSSI_AT_1_METER
 
 # Configure logging
 logging.basicConfig(
@@ -19,16 +19,17 @@ logger = logging.getLogger(__name__)
 
 # Only run if localization module is available
 try:
-    from localization import (
-        RSSIToDistance,
-        Trilateration,
-        AnchorPoint,
-        RSSIMeasurement,
-        localize_device
-    )
+    from localization import RSSIToDistance, calculate_coordinates_from_rssi, get_default_anchors, localize_device
 except ImportError as e:
     logger.error(f"Failed to import localization module: {e}")
-    sys.exit(1)
+    raise
+
+
+ANCHORS = get_default_anchors()
+
+
+def distance_to_rssi(distance: float) -> int:
+    return int(round(REFERENCE_RSSI_AT_1_METER - 10 * RSSIToDistance.PATH_LOSS_EXPONENT * math.log10(max(distance, 0.25))))
 
 
 def test_rssi_to_distance():
@@ -38,10 +39,10 @@ def test_rssi_to_distance():
     print("="*60)
     
     test_cases = [
-        (-40, "Very close (1m reference)"),
-        (-50, "Close (~3m)"),
-        (-60, "Medium (~10m)"),
-        (-70, "Far (~30m)"),
+        (-50, "1m reference"),
+        (-57, "About 2m away"),
+        (-65, "About 5m away"),
+        (-72, "About 10m away"),
         (-85, "Very far (~100m)"),
     ]
     
@@ -59,36 +60,27 @@ def test_with_simulated_data():
     print("TEST 2: Trilateration with Simulated Data")
     print("="*60)
     
-    # Define test anchors (30m × 40m facility)
-    # Gateway at center, each SN is 5m away forming equilateral triangle, 1m lower
-    anchors = {
-        'gateway': AnchorPoint('gateway', 'Gateway', 15, 20, 2.5),
-        'sn1': AnchorPoint('sn1', 'Anchor 1 (East)', 20, 20, 1.5),
-        'sn2': AnchorPoint('sn2', 'Anchor 2 (Northwest)', 12.5, 24.33, 1.5),
-        'sn3': AnchorPoint('sn3', 'Anchor 3 (Southwest)', 12.5, 15.67, 1.5)
-    }
-    
     # Test cases with known true positions
     test_positions = [
         {
-            'name': 'Center',
-            'true_pos': np.array([15, 20, 1.2]),
-            'description': 'Device at facility center (gateway location)'
-        },
-        {
             'name': 'Near Gateway',
-            'true_pos': np.array([15, 20, 1.2]),
-            'description': 'Device close to gateway'
+            'true_pos': np.array([0.0, 0.0, FIXED_DEVICE_HEIGHT_METERS]),
+            'description': 'Device directly above the gateway'
         },
         {
             'name': 'Between SN1 and SN2',
-            'true_pos': np.array([16.2, 22.2, 1.2]),
-            'description': 'Device in triangle between anchors'
+            'true_pos': np.array([1.2, 2.0, 0.8]),
+            'description': 'Device inside the triangle'
         },
         {
-            'name': 'East Side',
-            'true_pos': np.array([25, 20, 1.2]),
-            'description': 'Device toward SN1 (east)'
+            'name': 'Toward SN1',
+            'true_pos': np.array([3.6, 0.4, 1.4]),
+            'description': 'Device moving east toward sn1'
+        },
+        {
+            'name': 'Toward SN3',
+            'true_pos': np.array([-1.4, -2.5, 0.6]),
+            'description': 'Device moving southwest toward sn3'
         }
     ]
     
@@ -104,15 +96,12 @@ def test_with_simulated_data():
         print(f"  {'Anchor':<12} {'Distance':<12} {'RSSI (ideal)':<15} {'RSSI (with noise)':<15}")
         print(f"  {'-'*12} {'-'*12} {'-'*15} {'-'*15}")
         
-        for node_id, anchor in anchors.items():
+        for node_id, anchor in ANCHORS.items():
             distance = float(np.linalg.norm(true_pos - anchor.position()))
-            
-            # Calculate RSSI without noise (RSSI = TX_POWER - 10*n*log10(d))
-            # Closer to 0 = nearer, more negative = farther
-            rssi_ideal = RSSIToDistance.TX_POWER - 10 * RSSIToDistance.PATH_LOSS_EXPONENT * math.log10(distance)
+            rssi_ideal = REFERENCE_RSSI_AT_1_METER - 10 * RSSIToDistance.PATH_LOSS_EXPONENT * math.log10(distance)
             
             # Add some noise (typical measurement error)
-            noise = np.random.normal(0, 2.5)  # 2.5 dBm std dev
+            noise = np.random.normal(0, 0.5)
             rssi_noisy = int(rssi_ideal + noise)
             
             rssi_readings[node_id] = rssi_noisy
@@ -123,7 +112,7 @@ def test_with_simulated_data():
         result = localize_device(
             device_id=f'test-{name}',
             rssi_readings=rssi_readings,
-            anchors=anchors,
+            anchors=ANCHORS,
             use_2d=False,
             filter_outliers=False
         )
@@ -140,7 +129,7 @@ def test_with_simulated_data():
             print(f"  Accuracy: {result['accuracy']:.2%}")
             print(f"  Measurements used: {result['num_measurements']}")
             
-            if error > 5:
+            if error > 1.25:
                 print(f"  ⚠ WARNING: Large error (>{error:.2f}m) - check RSSI generation")
             else:
                 print(f"  ✓ Position error acceptable")
@@ -154,20 +143,13 @@ def test_with_manual_rssi():
     print("TEST 3: Manual RSSI Input")
     print("="*60)
     
-    anchors = {
-        'gateway': AnchorPoint('gateway', 'Gateway', 15, 20, 2.5),
-        'sn1': AnchorPoint('sn1', 'Anchor 1 (East)', 20, 20, 1.5),
-        'sn2': AnchorPoint('sn2', 'Anchor 2 (Northwest)', 12.5, 24.33, 1.5),
-        'sn3': AnchorPoint('sn3', 'Anchor 3 (Southwest)', 12.5, 15.67, 1.5)
-    }
-    
     # Example: Device somewhere in facility
     print("\n  Enter RSSI readings from each anchor (in dBm):")
     print("  Example values: -50 to -80 (closer is stronger, less negative)")
     print("  Or use default test values (press Enter)\n")
     
     rssi_readings = {}
-    defaults = {'gateway': -55, 'sn1': -65, 'sn2': -72, 'sn3': -68}
+    defaults = {'gateway': -52, 'sn1': -62, 'sn2': -66, 'sn3': -64}
     
     for node_id in ['gateway', 'sn1', 'sn2', 'sn3']:
         prompt = f"  RSSI from {node_id:<8} [{defaults[node_id]:4d}]: "
@@ -190,7 +172,7 @@ def test_with_manual_rssi():
     result = localize_device(
         device_id='manual-test',
         rssi_readings=rssi_readings,
-        anchors=anchors,
+        anchors=ANCHORS,
         use_2d=False
     )
     
@@ -214,21 +196,14 @@ def test_2d_vs_3d():
     print("TEST 4: 2D vs 3D Localization")
     print("="*60)
     
-    anchors = {
-        'gateway': AnchorPoint('gateway', 'Gateway', 15, 20, 2.5),
-        'sn1': AnchorPoint('sn1', 'Anchor 1 (East)', 20, 20, 1.5),
-        'sn2': AnchorPoint('sn2', 'Anchor 2 (Northwest)', 12.5, 24.33, 1.5),
-        'sn3': AnchorPoint('sn3', 'Anchor 3 (Southwest)', 12.5, 15.67, 1.5)
-    }
-    
     # True position
-    true_pos = np.array([15, 20, 1.2])
+    true_pos = np.array([0.0, 0.0, FIXED_DEVICE_HEIGHT_METERS])
     
     # Simulate RSSI
     rssi_readings = {}
-    for node_id, anchor in anchors.items():
+    for node_id, anchor in ANCHORS.items():
         distance = float(np.linalg.norm(true_pos - anchor.position()))
-        rssi = int(RSSIToDistance.TX_POWER - 10 * RSSIToDistance.PATH_LOSS_EXPONENT * math.log10(distance))
+        rssi = distance_to_rssi(distance)
         rssi_readings[node_id] = rssi
     
     print(f"\n  True position: ({true_pos[0]:.1f}, {true_pos[1]:.1f}, {true_pos[2]:.1f})")
@@ -239,7 +214,7 @@ def test_2d_vs_3d():
     result_3d = localize_device(
         device_id='test-3d',
         rssi_readings=rssi_readings,
-        anchors=anchors,
+        anchors=ANCHORS,
         use_2d=False
     )
     
@@ -255,18 +230,52 @@ def test_2d_vs_3d():
     result_2d = localize_device(
         device_id='test-2d',
         rssi_readings=rssi_readings,
-        anchors=anchors,
+        anchors=ANCHORS,
         use_2d=True
     )
-    
+
     if result_2d:
         pos_2d = np.array([result_2d['position']['x'], result_2d['position']['y'], result_2d['position']['z']])
         error_2d = np.linalg.norm(pos_2d - true_pos)
         print(f"    Position: ({result_2d['position']['x']:.2f}, {result_2d['position']['y']:.2f}, {result_2d['position']['z']:.2f})")
         print(f"    Error: {error_2d:.2f}m")
         print(f"    Confidence: {result_2d['confidence']:.1%}")
-    
+
     print(f"\n  Note: 2D mode is more stable when device height is fixed")
+
+
+def test_direct_coordinate_calculation():
+    """Test direct gateway/sn1/sn2/sn3 RSSI to x/y/z calculation."""
+    print("\n" + "="*60)
+    print("TEST 5: Direct Coordinate Calculation")
+    print("="*60)
+
+    true_pos = np.array([1.4, -1.1, 0.9])
+    rssi_values = {}
+    for node_id, anchor in ANCHORS.items():
+        distance = float(np.linalg.norm(true_pos - anchor.position()))
+        rssi_values[node_id] = distance_to_rssi(distance)
+
+    result = calculate_coordinates_from_rssi(
+        gateway_rssi=rssi_values['gateway'],
+        sn1_rssi=rssi_values['sn1'],
+        sn2_rssi=rssi_values['sn2'],
+        sn3_rssi=rssi_values['sn3'],
+    )
+
+    if not result:
+        raise RuntimeError('Direct coordinate calculation failed')
+
+    estimated = np.array([
+        result['position']['x'],
+        result['position']['y'],
+        result['position']['z'],
+    ])
+    error = float(np.linalg.norm(estimated - true_pos))
+
+    print(f"  Input RSSI values: {rssi_values}")
+    print(f"  Estimated position: ({estimated[0]:.2f}, {estimated[1]:.2f}, {estimated[2]:.2f})")
+    print(f"  Position error: {error:.3f}m")
 
 
 def main():
@@ -289,6 +298,7 @@ def main():
         
         # Run comparison test
         test_2d_vs_3d()
+        test_direct_coordinate_calculation()
         
         print("\n" + "="*60)
         print("✓ ALL TESTS COMPLETED")
@@ -302,7 +312,7 @@ def main():
         
     except Exception as e:
         logger.error(f"Test failed: {e}", exc_info=True)
-        sys.exit(1)
+        raise
 
 
 if __name__ == '__main__':

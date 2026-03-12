@@ -1,67 +1,60 @@
 #!/usr/bin/env python3
+import argparse
+import os
 import sys
 import logging
+from pathlib import Path
 
-# Assuming your database.py is in this path
-sys.path.insert(0, '/home/yztan120/Application Server')
+from anchor_layout import get_stationary_nodes
+
+# Ensure local imports work regardless of the current working directory.
+PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from database import (
-    init_database, 
+    init_database,
     insert_stationary_node,
-    log_system_event
 )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Coordinates calculated for an equilateral triangle with radius (r) = 5m
-# Gateway is at (0, 0, 0)
-# SN1: (r, 0, 0) -> East
-# SN2: (-r/2, r*sqrt(3)/2, 0) -> Northwest
-# SN3: (-r/2, -r*sqrt(3)/2, 0) -> Southwest
+DEFAULT_DB_PATH = PROJECT_ROOT / 'elderly_monitoring.db'
+STATIONARY_NODES = get_stationary_nodes()
 
-STATIONARY_NODES = [
-    {
-        'id': 'gateway',
-        'name': 'LoRaWAN Gateway (Origin)',
-        'type': 'gateway',
-        'location': {'x': 0.0, 'y': 0.0, 'z': 0.0},
-        'status': 'online'
-    },
-    {
-        'id': 'sn1',
-        'name': 'Stationary Node 1 (East)',
-        'type': 'anchor',
-        'location': {'x': 5.0, 'y': 0.0, 'z': 0.0}, # Radius = 5m
-        'status': 'online'
-    },
-    {
-        'id': 'sn2',
-        'name': 'Stationary Node 2 (Northwest)',
-        'type': 'anchor',
-        'location': {'x': -2.5, 'y': 4.33, 'z': 0.0}, # -5/2, 5*sqrt(3)/2
-        'status': 'online'
-    },
-    {
-        'id': 'sn3',
-        'name': 'Stationary Node 3 (Southwest)',
-        'type': 'anchor',
-        'location': {'x': -2.5, 'y': -4.33, 'z': 0.0}, # -5/2, -5*sqrt(3)/2
-        'status': 'online'
-    }
-]
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description='Initialize the SQLite database with the default stationary nodes.'
+    )
+    parser.add_argument(
+        '--db-path',
+        default=os.environ.get('IOT_DB_PATH', str(DEFAULT_DB_PATH)),
+        help='SQLite database file path. Relative paths are resolved from this script folder.'
+    )
+    return parser.parse_args()
+
+
+def resolve_db_path(raw_path: str) -> Path:
+    db_path = Path(raw_path).expanduser()
+    if not db_path.is_absolute():
+        db_path = PROJECT_ROOT / db_path
+    return db_path
+
 
 def main():
+    args = parse_args()
+    db_path = resolve_db_path(args.db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
     print("="*60)
-    print("Elderly Monitoring System - In-Memory DB Initialization")
+    print("Elderly Monitoring System - Database Initialization")
     print("="*60)
     
-    # Step 1: Initialize database in RAM
-    # NOTE: Your 'database.py' functions must support passing this string to sqlite3.connect()
-    print("\n[1/2] Creating In-Memory database...")
-    db_path = ':memory:' 
-    init_database(db_path)
-    print("✓ Volatile database schema created in RAM")
+    print(f"\n[1/2] Creating database at: {db_path}")
+    init_database(str(db_path))
+    print("✓ Database schema created")
     
     # Step 2: Insert stationary nodes
     print("\n[2/2] Inserting infrastructure nodes at Z=0...")
@@ -72,7 +65,7 @@ def main():
             print(f"  ✗ Failed to add {node['id']}")
     
     print("\n" + "="*60)
-    print("✓ Initialization complete! (Data will be lost on exit)")
+    print(f"✓ Initialization complete! Database saved at: {db_path}")
     print("="*60)
 
 if __name__ == "__main__":

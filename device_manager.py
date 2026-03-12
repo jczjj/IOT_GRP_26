@@ -16,6 +16,7 @@ from database import (
     get_device,
     get_all_devices as db_get_all_devices,
     get_all_stationary_nodes as db_get_stationary_nodes,
+    get_latest_rssi_readings,
     insert_device,
     update_device_location,
     update_device_battery,
@@ -29,10 +30,8 @@ from database import (
 
 # Import localization functions
 from localization import (
-    RSSIToDistance,
-    Trilateration,
-    AnchorPoint,
-    localize_device
+    get_default_anchors,
+    localize_device as run_localization,
 )
 
 # Make Pillow optional - only used for image resolution detection
@@ -302,48 +301,39 @@ class DeviceManager:
         device = get_device(device_id)
         if not device:
             return []
-            
-            # Check if device is in direct Wi-Fi range (RSSI > -70 to gateway)
-            gateway_rssi = device['rssi_readings'].get('gateway')
-            if gateway_rssi and gateway_rssi > -70:
-                return [device_id, 'gateway']
-            
-            # Need to find relay devices
-            # Find device with best signal to gateway that's within range of target
-            relay_candidates = []
-            all_devices = db_get_all_devices()
-            
-            for other_device in all_devices:
-                other_id = other_device['id']
-                if other_id == device_id or not other_device.get('wifi_capable'):
-                    continue
-                
-                other_gateway_rssi = other_device['rssi_readings'].get('gateway')
-                if other_gateway_rssi and other_gateway_rssi > -70:
-                    # This device can reach gateway
-                    # Calculate distance to target device
-                    distance = self._calculate_distance(
-                        device['location'],
-                        other_device['location']
-                    )
-                    
-                    # If within ~15m range, it's a candidate
-                    if distance < 15:
-                        relay_candidates.append({
-                            'id': other_id,
-                            'gateway_rssi': other_gateway_rssi,
-                            'distance_to_target': distance
-                        })
-            
-            # Sort by best gateway signal and closest distance
-            relay_candidates.sort(key=lambda x: (-x['gateway_rssi'], x['distance_to_target']))
-            
-            if relay_candidates:
-                relay_id = relay_candidates[0]['id']
-                return [device_id, relay_id, 'gateway']
-            
-            # No viable relay found, try direct
+
+        gateway_rssi = device['rssi_readings'].get('gateway')
+        if gateway_rssi and gateway_rssi > -70:
             return [device_id, 'gateway']
+
+        relay_candidates = []
+        all_devices = db_get_all_devices()
+
+        for other_device in all_devices:
+            other_id = other_device['id']
+            if other_id == device_id or not other_device.get('wifi_capable'):
+                continue
+
+            other_gateway_rssi = other_device['rssi_readings'].get('gateway')
+            if other_gateway_rssi and other_gateway_rssi > -70:
+                distance = self._calculate_distance(
+                    device['location'],
+                    other_device['location']
+                )
+                if distance < 15:
+                    relay_candidates.append({
+                        'id': other_id,
+                        'gateway_rssi': other_gateway_rssi,
+                        'distance_to_target': distance
+                    })
+
+        relay_candidates.sort(key=lambda candidate: (-candidate['gateway_rssi'], candidate['distance_to_target']))
+
+        if relay_candidates:
+            relay_id = relay_candidates[0]['id']
+            return [device_id, relay_id, 'gateway']
+
+        return [device_id, 'gateway']
     
     def localize_device(self, device_id: str, use_2d: bool = False) -> Optional[Dict[str, Any]]:
         """
@@ -369,51 +359,21 @@ class DeviceManager:
             Returns None if localization fails
         """
         with self.lock:
-            # Get latest RSSI readings for this device from database
             try:
-                from database import get_connection
-                conn = get_connection()
-                cursor = conn.cursor()
-                
-                # Query latest RSSI from each node
-                cursor.execute('''
-                    SELECT node_id, rssi
-                    FROM rssi_readings
-                    WHERE device_id = ?
-                    ORDER BY node_id, timestamp DESC
-                ''', (device_id,))
-                
-                rssi_by_node = {}
-                seen_nodes = set()
-                
-                for row in cursor.fetchall():
-                    node_id = row['node_id']
-                    if node_id not in seen_nodes:
-                        rssi_by_node[node_id] = row['rssi']
-                        seen_nodes.add(node_id)
-                
+                rssi_by_node = {
+                    node_id: rssi
+                    for node_id, rssi in get_latest_rssi_readings(device_id).items()
+                    if rssi is not None
+                }
+
                 if not rssi_by_node:
                     logger.warning(f"No RSSI measurements found for {device_id}")
                     return None
-                
-                # Get all stationary nodes as anchors
-                nodes = db_get_stationary_nodes()
-                anchors = {}
-                
-                for node in nodes:
-                    anchors[node['node_id']] = AnchorPoint(
-                        node_id=node['node_id'],
-                        name=node['name'],
-                        x=node['location_x'],
-                        y=node['location_y'],
-                        z=node['location_z']
-                    )
-                
-                # Perform localization
-                result = localize_device(
+
+                result = run_localization(
                     device_id=device_id,
                     rssi_readings=rssi_by_node,
-                    anchors=anchors,
+                    anchors=get_default_anchors(),
                     use_2d=use_2d,
                     filter_outliers=True
                 )

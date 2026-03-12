@@ -14,14 +14,15 @@ import time
 from datetime import datetime
 from typing import Callable, Optional, Dict, Any, List
 import logging
-import math
 from collections import defaultdict
 
-try:
-    import numpy as np
-    HAS_NUMPY = True
-except ImportError:
-    HAS_NUMPY = False
+from localization import (
+    AnchorPoint,
+    RSSIMeasurement,
+    RSSIToDistance,
+    Trilateration,
+    get_default_anchors,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,195 +36,6 @@ TTN_HOST = "au1.cloud.thethings.network"
 TTN_PORT = 1883
 TTN_USERNAME = "iot-sit-group26-project-2026@ttn"
 TTN_PASSWORD = "NNSXS.HQ2B4OSKH4FH6TXYN22W4FVW7OKMNFBHFRTCP4Q.37CAHSZPPJNWJW4KZMCAELOQCSRRMVQZLR3MQYE3KWGDSRGWAOSQ"
-
-# ============================================================================
-# LOCALIZATION MODULE - RSSI to Distance and Trilateration
-# ============================================================================
-
-class AnchorPoint:
-    """Represents a stationary node (anchor) with known position"""
-    def __init__(self, node_id: str, name: str, x: float, y: float, z: float):
-        self.node_id = node_id
-        self.name = name
-        self.x = x
-        self.y = y
-        self.z = z
-    
-    def position(self):
-        """Return position as tuple or numpy array"""
-        if HAS_NUMPY:
-            return np.array([self.x, self.y, self.z])
-        else:
-            return (self.x, self.y, self.z)
-
-
-class RSSIToDistance:
-    """
-    Converts RSSI (dBm) to estimated distance using Log-Distance Path Loss Model.
-    
-    Formula: distance = 10^((TX_POWER - RSSI) / (10 * n))
-    Where:
-    - TX_POWER: Transmit power at 1m reference (-40 dBm for LoRa)
-    - RSSI: Measured signal strength (dBm)
-    - n: Path loss exponent (2.0-4.0)
-    """
-    
-    TX_POWER = -40          # dBm at 1m reference distance
-    PATH_LOSS_EXPONENT = 2.5  # Indoor LoS path loss exponent
-    MIN_DISTANCE = 0.5      # Minimum distance in meters
-    MAX_DISTANCE = 50.0     # Maximum distance in meters
-    
-    @staticmethod
-    def rssi_to_distance(rssi: int) -> float:
-        """Convert RSSI to distance in meters"""
-        if rssi >= 0:
-            logger.warning(f"Invalid RSSI: {rssi} dBm (should be negative)")
-            return RSSIToDistance.MIN_DISTANCE
-        
-        # Log-distance path loss formula
-        # RSSI closer to 0 = nearer, more negative = farther
-        # d = 10^((TX_POWER - RSSI) / (10 * n))
-        path_loss = RSSIToDistance.TX_POWER - rssi
-        distance = 10 ** (path_loss / (10 * RSSIToDistance.PATH_LOSS_EXPONENT))
-        
-        # Clamp to valid range
-        distance = max(RSSIToDistance.MIN_DISTANCE, min(distance, RSSIToDistance.MAX_DISTANCE))
-        return distance
-    
-    @staticmethod
-    def calculate_confidence(rssi: int, distance: float) -> float:
-        """Calculate measurement confidence (0.0-1.0)"""
-        # RSSI confidence: -30 dBm (close) = 100%, -100 dBm (far) = 10%
-        rssi_conf = max(0.0, min(1.0, (rssi + 100) / 70))
-        
-        # Distance confidence: optimal range 2-15m
-        if distance < 2:
-            dist_conf = 0.9 + (distance / 2) * 0.1
-        elif distance <= 15:
-            dist_conf = 1.0
-        else:
-            dist_conf = max(0.5, 1.0 - (distance - 15) / 35)
-        
-        # Combined confidence
-        return rssi_conf * 0.6 + dist_conf * 0.4
-
-
-class Trilateration:
-    """Calculate device position from RSSI measurements using least-squares fitting"""
-    
-    MIN_ANCHORS = 3  # Need at least 3 anchors for 2D, 4 for accurate 3D
-    
-    @staticmethod
-    def calculate_position(rssi_dict: Dict[str, int], 
-                          anchors: Dict[str, AnchorPoint],
-                          use_2d: bool = False) -> Optional[Dict[str, Any]]:
-        """
-        Calculate device position using weighted least-squares trilateration.
-        
-        Args:
-            rssi_dict: Dict of {node_id: rssi_dBm}
-            anchors: Dict of {node_id: AnchorPoint}
-            use_2d: If True, assume device at fixed height (1.2m)
-        
-        Returns:
-            Dict with position and metrics, or None if failed
-        """
-        if not HAS_NUMPY:
-            logger.error("NumPy required for trilateration. Install: pip install numpy")
-            return None
-        
-        # Filter valid measurements
-        measurements = {}
-        for node_id, rssi in rssi_dict.items():
-            if node_id not in anchors:
-                continue
-            if rssi > -20 or rssi < -120:  # Valid RSSI range: -120 to -20 dBm
-                continue
-            
-            distance = RSSIToDistance.rssi_to_distance(rssi)
-            confidence = RSSIToDistance.calculate_confidence(rssi, distance)
-            measurements[node_id] = {
-                'distance': distance,
-                'confidence': confidence,
-                'rssi': rssi
-            }
-        
-        if len(measurements) < Trilateration.MIN_ANCHORS:
-            logger.warning(f"Insufficient measurements: {len(measurements)} (need {Trilateration.MIN_ANCHORS})")
-            return None
-        
-        # Linearized trilateration by subtracting reference equation
-        # Sphere eq: (x-xi)^2 + (y-yi)^2 + (z-zi)^2 = di^2
-        # Subtracting eq_0 from eq_i eliminates the unknown x^2+y^2+z^2 term
-        items = list(measurements.items())
-        ref_node_id, ref_data = items[0]
-        ref_anchor = anchors[ref_node_id]
-        ref_dist_sq = ref_data['distance'] ** 2
-        ref_anchor_sq = ref_anchor.x**2 + ref_anchor.y**2 + ref_anchor.z**2
-        
-        A = []
-        b = []
-        weights = []
-        
-        for node_id, data in items[1:]:
-            anchor = anchors[node_id]
-            di_sq = data['distance'] ** 2
-            anchor_i_sq = anchor.x**2 + anchor.y**2 + anchor.z**2
-            
-            A.append([
-                2 * (anchor.x - ref_anchor.x),
-                2 * (anchor.y - ref_anchor.y),
-                2 * (anchor.z - ref_anchor.z)
-            ])
-            b.append(di_sq - ref_dist_sq + ref_anchor_sq - anchor_i_sq)
-            weights.append(data['confidence'])
-        
-        try:
-            A = np.array(A, dtype=float)
-            b = np.array(b, dtype=float)
-            weights = np.array(weights, dtype=float)
-            
-            # Normalize weights
-            weights = weights / np.sum(weights)
-            W = np.diag(weights)
-            
-            # Solve weighted least-squares
-            ATA = A.T @ W @ A
-            ATb = A.T @ W @ b
-            
-            try:
-                position = np.linalg.solve(ATA, ATb)
-            except np.linalg.LinAlgError:
-                position, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
-            
-            x, y, z = float(position[0]), float(position[1]), float(position[2])
-            
-            # Lock z if 2D mode
-            if use_2d:
-                z = 1.2
-            
-            # Calculate residual error
-            predicted_b = A @ position
-            residuals = predicted_b - b
-            rms_error = float(np.sqrt(np.mean(residuals ** 2)))
-            
-            # Confidence and accuracy
-            avg_confidence = float(np.mean(weights))
-            accuracy = max(0.3, avg_confidence * (1.0 - min(1.0, rms_error / 10)))
-            
-            return {
-                'position': {'x': x, 'y': y, 'z': z},
-                'residual_error': rms_error,
-                'confidence': avg_confidence,
-                'accuracy': accuracy,
-                'num_measurements': len(measurements),
-                'timestamp': datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"Trilateration error: {e}")
-            return None
-
 
 # ============================================================================
 # TTN MQTT CLIENT
@@ -269,12 +81,7 @@ class TTNClient:
         
     def _get_default_anchors(self) -> Dict[str, AnchorPoint]:
         """Get default anchor positions for the facility"""
-        return {
-            'gateway': AnchorPoint('gateway', 'LoRaWAN Gateway (Center)', 15.0, 20.0, 2.5),
-            'sn1': AnchorPoint('sn1', 'Stationary Node 1 (East)', 20.0, 20.0, 1.5),
-            'sn2': AnchorPoint('sn2', 'Stationary Node 2 (Northwest)', 12.5, 24.33, 1.5),
-            'sn3': AnchorPoint('sn3', 'Stationary Node 3 (Southwest)', 12.5, 15.67, 1.5)
-        }
+        return get_default_anchors()
         
     def _on_connect(self, client, userdata, flags, rc):
         """Callback when connected to TTN"""
@@ -395,7 +202,26 @@ class TTNClient:
                 return None
             
             # Perform trilateration
-            result = Trilateration.calculate_position(rssi_data, self.anchors, use_2d=False)
+            result = Trilateration.calculate_position(
+                measurements=[
+                    RSSIMeasurement(
+                        node_id=node_id,
+                        rssi=rssi,
+                        distance=RSSIToDistance.rssi_to_distance(rssi),
+                        timestamp=datetime.now(),
+                        confidence=RSSIToDistance.calculate_confidence(
+                            rssi,
+                            RSSIToDistance.rssi_to_distance(rssi),
+                            len(rssi_data),
+                        ),
+                    )
+                    for node_id, rssi in rssi_data.items()
+                    if node_id in self.anchors
+                ],
+                anchors=self.anchors,
+                use_weights=True,
+                prefer_2d=False,
+            )
             
             if result:
                 self.last_position[device_id] = result['position']
@@ -702,12 +528,7 @@ if __name__ == "__main__":
         print(f"  Metadata: {metadata}")
     
     # Create client with localization enabled
-    anchors = {
-        'gateway': AnchorPoint('gateway', 'LoRaWAN Gateway', 15.0, 20.0, 2.5),
-        'sn1': AnchorPoint('sn1', 'Anchor 1 (East)', 20.0, 20.0, 1.5),
-        'sn2': AnchorPoint('sn2', 'Anchor 2 (NW)', 12.5, 24.33, 1.5),
-        'sn3': AnchorPoint('sn3', 'Anchor 3 (SW)', 12.5, 15.67, 1.5)
-    }
+    anchors = get_default_anchors()
     
     client = TTNClient(on_message_callback=test_callback, anchors=anchors, auto_localize=True)
     client.start()

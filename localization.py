@@ -1,397 +1,285 @@
 #!/usr/bin/env python3
 """
-Localization Module - RSSI-Based Distance Calculation & Trilateration
-Converts RSSI measurements to estimated distances and calculates device positions
+Localization Module
+Converts gateway/sn1/sn2/sn3 RSSI readings into x, y, z coordinates.
 """
 
-import math
+from __future__ import annotations
+
 import logging
-from typing import Dict, List, Tuple, Optional, Any
-from datetime import datetime, timedelta
-import numpy as np
+import math
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+
+from anchor_layout import (
+    ALL_ANCHOR_IDS,
+    FIXED_DEVICE_HEIGHT_METERS,
+    GATEWAY_NODE_ID,
+    PATH_LOSS_EXPONENT,
+    REFERENCE_RSSI_AT_1_METER,
+    get_anchor_layout,
+)
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(frozen=True)
 class AnchorPoint:
-    """Represents a stationary node (anchor) with known position"""
     node_id: str
     name: str
     x: float
     y: float
     z: float
-    
+
     def position(self) -> np.ndarray:
-        """Return position as numpy array"""
-        return np.array([self.x, self.y, self.z])
+        return np.array([self.x, self.y, self.z], dtype=float)
 
 
-@dataclass
+@dataclass(frozen=True)
 class RSSIMeasurement:
-    """Single RSSI measurement from an anchor"""
     node_id: str
-    rssi: int  # dBm
-    distance: float  # Calculated distance in meters
+    rssi: int
+    distance: float
     timestamp: datetime
-    confidence: float  # 0.0 to 1.0
+    confidence: float
+
+
+def get_default_anchors() -> Dict[str, AnchorPoint]:
+    anchors: Dict[str, AnchorPoint] = {}
+    for node_id, node in get_anchor_layout().items():
+        location = node['location']
+        anchors[node_id] = AnchorPoint(
+            node_id=node_id,
+            name=node['name'],
+            x=float(location['x']),
+            y=float(location['y']),
+            z=float(location['z']),
+        )
+    return anchors
 
 
 class RSSIToDistance:
-    """
-    Converts RSSI (dBm) to estimated distance using Log-Distance Path Loss Model.
-    
-    Formula: distance = 10^((TX_POWER - RSSI - FADING) / (10 * n))
-    Where:
-    - TX_POWER: Transmit power at 1m reference (typical -40 dBm for BLE/Wi-Fi)
-    - RSSI: Measured signal strength (dBm)
-    - n: Path loss exponent (2-4 depending on environment)
-    - FADING: Wall/furniture attenuation (0-10 dB)
-    """
-    
-    # Environmental parameters - tune these based on your facility
-    TX_POWER = -40          # dBm at 1m reference distance
-    PATH_LOSS_EXPONENT = 2.5  # 2.0-2.5 for indoor LoS, 3.0-4.0 for NLOS
-    WALL_FADING = 3.0        # dB per wall/major obstacle
-    
-    # Distance limits for filtering invalid measurements
-    MIN_DISTANCE = 0.5   # meters
-    MAX_DISTANCE = 50.0  # meters
-    
+    """Convert RSSI to distance using a calibrated log-distance model."""
+
+    REFERENCE_RSSI_AT_1_METER = REFERENCE_RSSI_AT_1_METER
+    PATH_LOSS_EXPONENT = PATH_LOSS_EXPONENT
+    MIN_DISTANCE = 0.25
+    MAX_DISTANCE = 50.0
+
     @staticmethod
-    def rssi_to_distance(rssi: int, tx_power: int = TX_POWER, 
-                        n: float = PATH_LOSS_EXPONENT, 
-                        wall_factor: float = WALL_FADING) -> float:
-        """
-        Calculate distance from RSSI value.
-        
-        Args:
-            rssi: RSSI value in dBm (typically -30 to -100)
-            tx_power: Transmit power at 1m reference (dBm)
-            n: Path loss exponent (2.0-4.0)
-            wall_factor: Additional attenuation from obstacles (dB)
-        
-        Returns:
-            Estimated distance in meters (clamped to MIN/MAX_DISTANCE)
-        """
+    def rssi_to_distance(
+        rssi: int,
+        reference_rssi: int = REFERENCE_RSSI_AT_1_METER,
+        path_loss_exponent: float = PATH_LOSS_EXPONENT,
+    ) -> float:
         if rssi >= 0:
-            logger.warning(f"Invalid RSSI value: {rssi} dBm (should be negative)")
+            logger.warning('Invalid RSSI value %s dBm; expected a negative number.', rssi)
             return RSSIToDistance.MIN_DISTANCE
-        
-        # Log-distance path loss formula
-        # RSSI closer to 0 = nearer, more negative = farther
-        # d = 10^((TX_POWER - RSSI) / (10 * n))
-        path_loss = tx_power - rssi
-        distance = 10 ** (path_loss / (10 * n))
-        
-        # Clamp to valid range
-        distance = max(RSSIToDistance.MIN_DISTANCE, min(distance, RSSIToDistance.MAX_DISTANCE))
-        
-        return distance
-    
+
+        distance = 10 ** ((reference_rssi - rssi) / (10 * path_loss_exponent))
+        return max(RSSIToDistance.MIN_DISTANCE, min(distance, RSSIToDistance.MAX_DISTANCE))
+
     @staticmethod
     def calculate_confidence(rssi: int, distance: float, num_measurements: int = 1) -> float:
-        """
-        Calculate measurement confidence (0.0-1.0).
-        
-        Higher RSSI (closer to 0) = more confident
-        Longer distance = less confident
-        More measurements = more confident
-        
-        Args:
-            rssi: RSSI value in dBm
-            distance: Calculated distance in meters
-            num_measurements: Number of samples averaged
-        
-        Returns:
-            Confidence score 0.0-1.0
-        """
-        # RSSI confidence: -30 dBm = 100%, -100 dBm = 10%
-        rssi_conf = max(0.0, min(1.0, (rssi + 100) / 70))
-        
-        # Distance confidence: optimal range 2-15m
-        if distance < 2:
-            dist_conf = 0.9 + (distance / 2) * 0.1
+        rssi_confidence = max(0.05, min(1.0, (abs(rssi) - 20) / 90))
+        rssi_confidence = 1.05 - rssi_confidence
+
+        if distance <= 5:
+            distance_confidence = 1.0
         elif distance <= 15:
-            dist_conf = 1.0
+            distance_confidence = 0.9
         else:
-            dist_conf = max(0.5, 1.0 - (distance - 15) / 35)
-        
-        # Measurement count confidence
-        count_conf = min(1.0, num_measurements / 3)  # Optimal at 3+ measurements
-        
-        # Combined confidence (weighted average)
-        confidence = (rssi_conf * 0.5 + dist_conf * 0.3 + count_conf * 0.2)
-        
-        return confidence
+            distance_confidence = max(0.4, 1.0 - ((distance - 15) / 35))
+
+        measurement_confidence = min(1.0, 0.5 + (num_measurements * 0.15))
+        return max(0.05, min(1.0, (rssi_confidence * 0.5) + (distance_confidence * 0.35) + (measurement_confidence * 0.15)))
 
 
 class Trilateration:
-    """
-    Calculates device position from multiple RSSI measurements using trilateration.
-    Uses weighted least-squares fitting for robustness.
-    """
-    
-    MIN_ANCHORS = 3  # Need at least 3 anchors for 2D, 4 for 3D
-    
+    """Solve x/y from anchor geometry, then recover z from gateway distance."""
+
+    MIN_MEASUREMENTS = 3
+
     @staticmethod
-    def calculate_position(measurements: List[RSSIMeasurement], 
-                          anchors: Dict[str, AnchorPoint],
-                          use_weights: bool = True,
-                          prefer_2d: bool = False) -> Optional[Dict[str, Any]]:
-        """
-        Calculate device position using weighted least-squares trilateration.
-        
-        Args:
-            measurements: List of RSSI measurements from different anchors
-            anchors: Dict of anchor points {node_id: AnchorPoint}
-            use_weights: If True, use confidence as weights; if False, equal weights
-            prefer_2d: If True, assume device is at Z=1.2m (typical height)
-        
-        Returns:
-            Dict with 'position' (x,y,z), 'residual', 'confidence' or None if failed
-        """
-        
-        # Validate inputs
-        if not measurements or len(measurements) < Trilateration.MIN_ANCHORS:
-            logger.warning(f"Insufficient measurements: {len(measurements)} (need {Trilateration.MIN_ANCHORS})")
-            return None
-        
-        # Collect valid measurements with their anchors
-        valid_data = []
-        
-        for measurement in measurements:
-            if measurement.node_id not in anchors:
-                logger.warning(f"Unknown anchor: {measurement.node_id}")
-                continue
-            
-            anchor = anchors[measurement.node_id]
-            valid_data.append((anchor, measurement))
-        
-        if len(valid_data) < Trilateration.MIN_ANCHORS:
-            logger.warning(f"Not enough valid measurements after filtering: {len(valid_data)}")
-            return None
-        
-        try:
-            # Linearized trilateration by subtracting reference equation
-            # Sphere eq: (x-xi)^2 + (y-yi)^2 + (z-zi)^2 = di^2
-            # Subtracting eq_0 from eq_i eliminates the unknown x^2+y^2+z^2 term:
-            # 2*(x0-xi)*x + 2*(y0-yi)*y + 2*(z0-zi)*z = d0^2 - di^2 + ||pi||^2 - ||p0||^2
-            
-            ref_anchor, ref_meas = valid_data[0]
-            ref_dist_sq = ref_meas.distance ** 2
-            ref_anchor_sq = ref_anchor.x**2 + ref_anchor.y**2 + ref_anchor.z**2
-            
-            A = []
-            b = []
-            weights = []
-            
-            for anchor, measurement in valid_data[1:]:
-                di_sq = measurement.distance ** 2
-                anchor_i_sq = anchor.x**2 + anchor.y**2 + anchor.z**2
-                
-                A.append([
-                    2 * (anchor.x - ref_anchor.x),
-                    2 * (anchor.y - ref_anchor.y),
-                    2 * (anchor.z - ref_anchor.z)
-                ])
-                b.append(di_sq - ref_dist_sq + ref_anchor_sq - anchor_i_sq)
-                
-                if use_weights:
-                    weights.append(measurement.confidence)
-                else:
-                    weights.append(1.0)
-            
-            # Convert to numpy arrays
-            A = np.array(A, dtype=float)
-            b = np.array(b, dtype=float)
-            weights = np.array(weights, dtype=float)
-            
-            # Normalize weights to sum to 1
-            weights = weights / np.sum(weights)
-            
-            # Weighted least-squares: minimize ||W^(1/2) * (A*x - b)||^2
-            # Equivalent to: (A^T * W * A)^(-1) * A^T * W * b
-            
-            W = np.diag(weights)  # Weight matrix
-            
-            # Solve: (A^T * W * A) * x = A^T * W * b
-            ATA = A.T @ W @ A
-            ATb = A.T @ W @ b
-            
-            try:
-                position = np.linalg.solve(ATA, ATb)
-            except np.linalg.LinAlgError:
-                # Matrix singular, use least-squares instead
-                position, residuals, rank, s = np.linalg.lstsq(A, b, rcond=None)
-                logger.debug(f"Used numpy.linalg.lstsq fallback (rank={rank})")
-            
-            x, y, z = float(position[0]), float(position[1]), float(position[2])
-            
-            # If prefer_2D, lock z to expected height
-            if prefer_2d:
-                z = 1.2  # Typical wrist-worn device height
-            
-            # Calculate residual (fitting error)
-            predicted_b = A @ position
-            residuals = predicted_b - b
-            rms_error = float(np.sqrt(np.mean(residuals ** 2)))
-            
-            # Overall confidence
-            avg_confidence = float(np.mean(weights))
-            
-            # Estimate accuracy from residual and confidence
-            accuracy = max(0.3, avg_confidence * (1.0 - min(1.0, rms_error / 10)))
-            
-            return {
-                'position': {'x': x, 'y': y, 'z': z},
-                'residual_error': rms_error,
-                'confidence': avg_confidence,
-                'accuracy': accuracy,
-                'num_measurements': len(valid_data),
-                'timestamp': datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"Trilateration failed: {e}", exc_info=True)
-            return None
-    
-    @staticmethod
-    def kalman_filter(current_position: Optional[Dict[str, float]],
-                     new_measurement: Dict[str, Any],
-                     process_noise: float = 0.1,
-                     measurement_noise: float = 1.0) -> Dict[str, float]:
-        """
-        Simple 3D Kalman filter for smoothing position estimates.
-        
-        Args:
-            current_position: Previous estimated position {x, y, z} or None for first measurement
-            new_measurement: New trilateration result with 'position' and 'accuracy'
-            process_noise: Q - process noise covariance (higher = trust motion more)
-            measurement_noise: R - measurement noise covariance (higher = trust new measurement less)
-        
-        Returns:
-            Filtered position {x, y, z}
-        """
-        
-        if current_position is None:
-            # First measurement - just return it
-            new_pos = new_measurement['position']
-            return {'x': new_pos['x'], 'y': new_pos['y'], 'z': new_pos['z']}
-        
-        # Simple complementary filter instead of full Kalman
-        # Use confidence as weighting factor
-        accuracy = new_measurement.get('accuracy', 0.5)
-        alpha = 0.3 + (accuracy * 0.4)  # 30-70% weight on new measurement
-        
-        new_pos = new_measurement['position']
-        
-        filtered = {
-            'x': current_position['x'] * (1 - alpha) + new_pos['x'] * alpha,
-            'y': current_position['y'] * (1 - alpha) + new_pos['y'] * alpha,
-            'z': current_position['z'] * (1 - alpha) + new_pos['z'] * alpha
+    def calculate_position(
+        measurements: List[RSSIMeasurement],
+        anchors: Dict[str, AnchorPoint],
+        use_weights: bool = True,
+        prefer_2d: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        measurement_map = {
+            measurement.node_id: measurement
+            for measurement in measurements
+            if measurement.node_id in anchors
         }
-        
-        return filtered
+
+        if len(measurement_map) < Trilateration.MIN_MEASUREMENTS:
+            logger.warning('Insufficient measurements: %s', len(measurement_map))
+            return None
+
+        gateway_measurement = measurement_map.get(GATEWAY_NODE_ID)
+        if gateway_measurement is None:
+            logger.warning('Gateway RSSI is required to recover z from trilateration.')
+            return None
+
+        gateway_anchor = anchors[GATEWAY_NODE_ID]
+        non_gateway_ids = [node_id for node_id in measurement_map if node_id != GATEWAY_NODE_ID]
+        if len(non_gateway_ids) < 2:
+            logger.warning('Need gateway plus at least two stationary nodes for localization.')
+            return None
+
+        rows: List[List[float]] = []
+        targets: List[float] = []
+        weights: List[float] = []
+
+        for node_id in non_gateway_ids:
+            anchor = anchors[node_id]
+            measurement = measurement_map[node_id]
+            rows.append([
+                2 * (gateway_anchor.x - anchor.x),
+                2 * (gateway_anchor.y - anchor.y),
+            ])
+            targets.append(
+                (measurement.distance ** 2)
+                - (gateway_measurement.distance ** 2)
+                - (anchor.x ** 2 + anchor.y ** 2)
+                + (gateway_anchor.x ** 2 + gateway_anchor.y ** 2)
+            )
+            weights.append(measurement.confidence if use_weights else 1.0)
+
+        matrix = np.array(rows, dtype=float)
+        vector = np.array(targets, dtype=float)
+        weight_vector = np.array(weights, dtype=float)
+
+        if np.any(weight_vector <= 0):
+            weight_vector = np.ones_like(weight_vector)
+
+        weight_matrix = np.diag(np.sqrt(weight_vector))
+        weighted_matrix = weight_matrix @ matrix
+        weighted_vector = weight_matrix @ vector
+
+        try:
+            planar_position, _, _, _ = np.linalg.lstsq(weighted_matrix, weighted_vector, rcond=None)
+        except np.linalg.LinAlgError as exc:
+            logger.error('Planar trilateration failed: %s', exc)
+            return None
+
+        x = float(planar_position[0])
+        y = float(planar_position[1])
+
+        if prefer_2d:
+            z = FIXED_DEVICE_HEIGHT_METERS
+        else:
+            horizontal_distance_sq = ((x - gateway_anchor.x) ** 2) + ((y - gateway_anchor.y) ** 2)
+            z_squared = (gateway_measurement.distance ** 2) - horizontal_distance_sq
+            if z_squared < -1.0:
+                logger.warning(
+                    'Gateway RSSI is inconsistent with solved x/y coordinates: horizontal=%.3f, gateway_distance=%.3f',
+                    math.sqrt(max(horizontal_distance_sq, 0.0)),
+                    gateway_measurement.distance,
+                )
+            z = gateway_anchor.z + math.sqrt(max(0.0, z_squared))
+
+        predicted_distances: Dict[str, float] = {}
+        residual_components: List[float] = []
+        for node_id, measurement in measurement_map.items():
+            anchor = anchors[node_id]
+            predicted_distance = math.sqrt(
+                ((x - anchor.x) ** 2)
+                + ((y - anchor.y) ** 2)
+                + ((z - anchor.z) ** 2)
+            )
+            predicted_distances[node_id] = predicted_distance
+            residual_components.append(predicted_distance - measurement.distance)
+
+        residual_error = float(np.sqrt(np.mean(np.square(residual_components)))) if residual_components else 0.0
+        measurement_confidence = float(np.mean([measurement.confidence for measurement in measurement_map.values()]))
+        geometry_score = max(0.0, 1.0 - min(1.0, residual_error / 5.0))
+        confidence = max(0.05, min(1.0, (measurement_confidence * 0.7) + (geometry_score * 0.3)))
+        accuracy = max(0.05, min(1.0, confidence * geometry_score))
+
+        return {
+            'position': {'x': x, 'y': y, 'z': z},
+            'residual_error': residual_error,
+            'confidence': confidence,
+            'accuracy': accuracy,
+            'num_measurements': len(measurement_map),
+            'predicted_distances': predicted_distances,
+            'timestamp': datetime.now().isoformat(),
+        }
 
 
-def localize_device(device_id: str, 
-                   rssi_readings: Dict[str, int],
-                   anchors: Dict[str, AnchorPoint],
-                   use_2d: bool = False,
-                   filter_outliers: bool = True) -> Optional[Dict[str, Any]]:
-    """
-    Complete localization pipeline: RSSI → distance → position
-    
-    Args:
-        device_id: Device to localize
-        rssi_readings: Dict {node_id: rssi_dBm} from fresh measurements
-        anchors: Dict {node_id: AnchorPoint}
-        use_2d: If True, assume device at fixed height
-        filter_outliers: If True, remove RSSI values that seem invalid
-    
-    Returns:
-        Localization result or None
-    """
-    
-    # Step 1: Convert RSSI to distances
-    measurements = []
-    
-    for node_id, rssi in rssi_readings.items():
-        if node_id not in anchors:
-            logger.warning(f"RSSI from unknown node: {node_id}")
+def localize_device(
+    device_id: str,
+    rssi_readings: Dict[str, int],
+    anchors: Optional[Dict[str, AnchorPoint]] = None,
+    use_2d: bool = False,
+    filter_outliers: bool = True,
+) -> Optional[Dict[str, Any]]:
+    anchors = anchors or get_default_anchors()
+    measurements: List[RSSIMeasurement] = []
+
+    for node_id in ALL_ANCHOR_IDS:
+        if node_id not in rssi_readings or node_id not in anchors:
             continue
-        
-        # Filter outliers
-        if filter_outliers:
-            if rssi > -20 or rssi < -120:  # Sanity check
-                logger.debug(f"Filtering outlier RSSI: {node_id}={rssi} dBm")
-                continue
-        
+
+        rssi = rssi_readings[node_id]
+        if filter_outliers and (rssi > -20 or rssi < -120):
+            logger.debug('Skipping outlier RSSI for %s: %s dBm', node_id, rssi)
+            continue
+
         distance = RSSIToDistance.rssi_to_distance(rssi)
-        confidence = RSSIToDistance.calculate_confidence(rssi, distance)
-        
-        measurement = RSSIMeasurement(
-            node_id=node_id,
-            rssi=rssi,
-            distance=distance,
-            timestamp=datetime.now(),
-            confidence=confidence
+        confidence = RSSIToDistance.calculate_confidence(rssi, distance, len(rssi_readings))
+        measurements.append(
+            RSSIMeasurement(
+                node_id=node_id,
+                rssi=rssi,
+                distance=distance,
+                timestamp=datetime.now(),
+                confidence=confidence,
+            )
         )
-        measurements.append(measurement)
-        
-        logger.debug(f"{device_id}: {node_id} RSSI={rssi} dBm → distance={distance:.2f}m (conf={confidence:.2f})")
-    
-    if not measurements:
-        logger.warning(f"No valid RSSI measurements for {device_id}")
+
+    if len(measurements) < Trilateration.MIN_MEASUREMENTS:
+        logger.warning('%s has only %s valid RSSI measurements.', device_id, len(measurements))
         return None
-    
-    # Step 2: Trilateration
+
     result = Trilateration.calculate_position(
         measurements=measurements,
         anchors=anchors,
         use_weights=True,
-        prefer_2d=use_2d
+        prefer_2d=use_2d,
     )
-    
-    if result:
-        logger.info(f"{device_id} localized: ({result['position']['x']:.2f}, {result['position']['y']:.2f}, {result['position']['z']:.2f}) "
-                   f"error={result['residual_error']:.2f}m conf={result['confidence']:.2f}")
-    
+    if result is None:
+        return None
+
+    result['device_id'] = device_id
+    result['rssi_readings'] = {node_id: rssi_readings[node_id] for node_id in rssi_readings if node_id in anchors}
+    result['distances'] = {
+        measurement.node_id: measurement.distance
+        for measurement in measurements
+    }
     return result
 
 
-# Example usage and testing
-if __name__ == '__main__':
-    import logging
-    logging.basicConfig(level=logging.DEBUG)
-    
-    # Define test anchors (30m × 40m facility)
-    # Gateway at center, 3 SNs forming equilateral triangle 5m away, 1m lower
-    anchors = {
-        'gateway': AnchorPoint('gateway', 'Gateway (Center)', 15.0, 20.0, 2.5),
-        'sn1': AnchorPoint('sn1', 'Anchor 1 (East)', 20.0, 20.0, 1.5),
-        'sn2': AnchorPoint('sn2', 'Anchor 2 (NW)', 12.5, 24.33, 1.5),
-        'sn3': AnchorPoint('sn3', 'Anchor 3 (SW)', 12.5, 15.67, 1.5)
-    }
-    
-    # Test case: device at (15, 20, 1.2) - facility center
-    # Calculate expected RSSI from each anchor
-    test_position = np.array([15, 20, 1.2])
-    rssi_readings = {}
-    
-    for node_id, anchor in anchors.items():
-        distance = float(np.linalg.norm(test_position - anchor.position()))
-        rssi = RSSIToDistance.TX_POWER - 10 * RSSIToDistance.PATH_LOSS_EXPONENT * math.log10(distance) + \
-               np.random.normal(0, 2)  # Add small noise
-        rssi_readings[node_id] = int(rssi)
-        print(f"Simulated {node_id}: distance={distance:.2f}m → RSSI={rssi:.1f} dBm")
-    
-    print("\n--- Running Trilateration ---")
-    result = localize_device('test-device', rssi_readings, anchors, use_2d=False)
-    
-    if result:
-        print(f"\nResult: {result['position']}")
-        print(f"Error: {result['residual_error']:.2f}m")
-        print(f"Confidence: {result['confidence']:.2%}")
+def calculate_coordinates_from_rssi(
+    gateway_rssi: int,
+    sn1_rssi: int,
+    sn2_rssi: int,
+    sn3_rssi: int,
+    use_2d: bool = False,
+) -> Optional[Dict[str, Any]]:
+    return localize_device(
+        device_id='manual-rssi-calculation',
+        rssi_readings={
+            'gateway': gateway_rssi,
+            'sn1': sn1_rssi,
+            'sn2': sn2_rssi,
+            'sn3': sn3_rssi,
+        },
+        anchors=get_default_anchors(),
+        use_2d=use_2d,
+    )

@@ -11,7 +11,9 @@ import logging
 import math  # Added for distance calculation
 import threading
 import uuid
-from ttn_integration import get_ttn_client, TTNClient, AnchorPoint
+from anchor_layout import GATEWAY_NODE_ID
+from localization import get_default_anchors
+from ttn_integration import get_ttn_client, TTNClient
 from device_manager import get_device_manager, DeviceManager
 from database import init_database, get_device_last_updated, get_device_last_uplink, get_latest_rssi_with_timestamps
 
@@ -39,14 +41,7 @@ logger.info("✓ Database initialized")
 # Initialize device manager
 device_manager: DeviceManager = get_device_manager(UPLOAD_FOLDER)
 
-# Configure anchor points for RSSI trilateration (30m × 40m facility)
-# Gateway at center, 3 SNs forming equilateral triangle 5m away, 1m lower
-FACILITY_ANCHORS = {
-    'gateway': AnchorPoint('gateway', 'LoRaWAN Gateway (Center)', 15.0, 20.0, 2.5),
-    'sn1': AnchorPoint('sn1', 'Stationary Node 1 (East)', 20.0, 20.0, 1.5),
-    'sn2': AnchorPoint('sn2', 'Stationary Node 2 (Northwest)', 12.5, 24.33, 1.5),
-    'sn3': AnchorPoint('sn3', 'Stationary Node 3 (Southwest)', 12.5, 15.67, 1.5)
-}
+FACILITY_ANCHORS = get_default_anchors()
 
 # Initialize TTN client with callback
 def on_ttn_message(device_id: str, payload_data: dict, metadata: dict):
@@ -332,7 +327,7 @@ def localize(device_id):
         pos = result['position']
         
         # Get the Gateway's exact coordinates from your config
-        gateway = FACILITY_ANCHORS['gateway']
+        gateway = FACILITY_ANCHORS[GATEWAY_NODE_ID]
         
         # Calculate 3D Euclidean distance from Gateway
         distance_from_gateway = math.sqrt(
