@@ -15,6 +15,17 @@ ANCHOR_RADIUS_METERS = 5.0
 REFERENCE_RSSI_AT_1_METER = -50
 PATH_LOSS_EXPONENT = 2.2
 FIXED_DEVICE_HEIGHT_METERS = 1.2
+GATEWAY_RSSI_OFFSET_DB = -50
+
+
+def get_rssi_offset(node_id: str) -> int:
+    if node_id == GATEWAY_NODE_ID:
+        return GATEWAY_RSSI_OFFSET_DB
+    return 0
+
+
+def calibrate_rssi(node_id: str, rssi: int) -> int:
+    return rssi + get_rssi_offset(node_id)
 
 
 def get_anchor_layout() -> Dict[str, Dict[str, Any]]:

@@ -20,6 +20,7 @@ from anchor_layout import (
     GATEWAY_NODE_ID,
     PATH_LOSS_EXPONENT,
     REFERENCE_RSSI_AT_1_METER,
+    calibrate_rssi,
     get_anchor_layout,
 )
 
@@ -74,7 +75,11 @@ class RSSIToDistance:
         rssi: int,
         reference_rssi: int = REFERENCE_RSSI_AT_1_METER,
         path_loss_exponent: float = PATH_LOSS_EXPONENT,
+        node_id: Optional[str] = None,
     ) -> float:
+        if node_id is not None:
+            rssi = calibrate_rssi(node_id, rssi)
+
         if rssi >= 0:
             logger.warning('Invalid RSSI value %s dBm; expected a negative number.', rssi)
             return RSSIToDistance.MIN_DISTANCE
@@ -83,7 +88,15 @@ class RSSIToDistance:
         return max(RSSIToDistance.MIN_DISTANCE, min(distance, RSSIToDistance.MAX_DISTANCE))
 
     @staticmethod
-    def calculate_confidence(rssi: int, distance: float, num_measurements: int = 1) -> float:
+    def calculate_confidence(
+        rssi: int,
+        distance: float,
+        num_measurements: int = 1,
+        node_id: Optional[str] = None,
+    ) -> float:
+        if node_id is not None:
+            rssi = calibrate_rssi(node_id, rssi)
+
         rssi_confidence = max(0.05, min(1.0, (abs(rssi) - 20) / 90))
         rssi_confidence = 1.05 - rssi_confidence
 
@@ -102,6 +115,7 @@ class Trilateration:
     """Solve x/y from anchor geometry, then recover z from gateway distance."""
 
     MIN_MEASUREMENTS = 3
+    GATEWAY_DISTANCE_TOLERANCE_METERS = 0.75
 
     @staticmethod
     def calculate_position(
@@ -174,13 +188,15 @@ class Trilateration:
             z = FIXED_DEVICE_HEIGHT_METERS
         else:
             horizontal_distance_sq = ((x - gateway_anchor.x) ** 2) + ((y - gateway_anchor.y) ** 2)
+            horizontal_distance = math.sqrt(max(horizontal_distance_sq, 0.0))
             z_squared = (gateway_measurement.distance ** 2) - horizontal_distance_sq
-            if z_squared < -1.0:
+            if (horizontal_distance - gateway_measurement.distance) > Trilateration.GATEWAY_DISTANCE_TOLERANCE_METERS:
                 logger.warning(
                     'Gateway RSSI is inconsistent with solved x/y coordinates: horizontal=%.3f, gateway_distance=%.3f',
-                    math.sqrt(max(horizontal_distance_sq, 0.0)),
+                    horizontal_distance,
                     gateway_measurement.distance,
                 )
+                return None
             z = gateway_anchor.z + math.sqrt(max(0.0, z_squared))
 
         predicted_distances: Dict[str, float] = {}
@@ -227,16 +243,17 @@ def localize_device(
             continue
 
         rssi = rssi_readings[node_id]
-        if filter_outliers and (rssi > -20 or rssi < -120):
-            logger.debug('Skipping outlier RSSI for %s: %s dBm', node_id, rssi)
+        calibrated_rssi = calibrate_rssi(node_id, rssi)
+        if filter_outliers and (calibrated_rssi > -20 or calibrated_rssi < -120):
+            logger.debug('Skipping outlier RSSI for %s: raw=%s dBm calibrated=%s dBm', node_id, rssi, calibrated_rssi)
             continue
 
-        distance = RSSIToDistance.rssi_to_distance(rssi)
-        confidence = RSSIToDistance.calculate_confidence(rssi, distance, len(rssi_readings))
+        distance = RSSIToDistance.rssi_to_distance(rssi, node_id=node_id)
+        confidence = RSSIToDistance.calculate_confidence(rssi, distance, len(rssi_readings), node_id=node_id)
         measurements.append(
             RSSIMeasurement(
                 node_id=node_id,
-                rssi=rssi,
+                rssi=calibrated_rssi,
                 distance=distance,
                 timestamp=datetime.now(),
                 confidence=confidence,

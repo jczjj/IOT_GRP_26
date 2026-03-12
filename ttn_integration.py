@@ -207,12 +207,13 @@ class TTNClient:
                     RSSIMeasurement(
                         node_id=node_id,
                         rssi=rssi,
-                        distance=RSSIToDistance.rssi_to_distance(rssi),
+                        distance=RSSIToDistance.rssi_to_distance(rssi, node_id=node_id),
                         timestamp=datetime.now(),
                         confidence=RSSIToDistance.calculate_confidence(
                             rssi,
-                            RSSIToDistance.rssi_to_distance(rssi),
+                            RSSIToDistance.rssi_to_distance(rssi, node_id=node_id),
                             len(rssi_data),
+                            node_id=node_id,
                         ),
                     )
                     for node_id, rssi in rssi_data.items()

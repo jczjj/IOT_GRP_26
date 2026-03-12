@@ -10,6 +10,62 @@ let dataRefreshInterval = null;
 let autoLocalizeInterval = null;
 let jobConsoleVisible = false;
 let deviceModalPollInterval = null;
+const autoLocalizationState = new Map();
+
+function getValidRssiEntries(rssiReadings) {
+    return Object.entries(rssiReadings || {}).filter(([, rssi]) => Number.isFinite(rssi));
+}
+
+function getValidRssiCount(rssiReadings) {
+    return getValidRssiEntries(rssiReadings).length;
+}
+
+function buildRssiSignature(device) {
+    const entries = getValidRssiEntries(device.rssi_readings)
+        .sort(([left], [right]) => left.localeCompare(right));
+    if (entries.length === 0) {
+        return null;
+    }
+    return entries.map(([nodeId, rssi]) => `${nodeId}:${rssi}`).join('|');
+}
+
+function shouldAutoLocalize(device) {
+    const validRssiCount = getValidRssiCount(device.rssi_readings);
+    if (validRssiCount < 3) {
+        return false;
+    }
+
+    const signature = buildRssiSignature(device);
+    if (!signature) {
+        return false;
+    }
+
+    const state = autoLocalizationState.get(device.id);
+    if (!state) {
+        return true;
+    }
+
+    if (state.inFlight) {
+        return false;
+    }
+
+    return state.lastSignature !== signature;
+}
+
+function markAutoLocalizationStart(device) {
+    autoLocalizationState.set(device.id, {
+        lastSignature: buildRssiSignature(device),
+        inFlight: true,
+    });
+}
+
+function markAutoLocalizationComplete(deviceId, signatureOverride = null) {
+    const previous = autoLocalizationState.get(deviceId) || {};
+    autoLocalizationState.set(deviceId, {
+        lastSignature: signatureOverride ?? previous.lastSignature ?? null,
+        inFlight: false,
+    });
+}
 
 // Initialize dashboard on page load
 document.addEventListener('DOMContentLoaded', function() {
@@ -151,9 +207,8 @@ async function loadData() {
             
             // Trigger automatic localization for devices with RSSI data
             devicesData.devices.forEach(device => {
-                if (device.rssi_readings && Object.keys(device.rssi_readings).length >= 3) {
-                    // Device has RSSI readings from ≥3 nodes, ready for localization
-                    localizeDeviceIfReady(device.id);
+                if (shouldAutoLocalize(device)) {
+                    localizeDeviceIfReady(device);
                 }
             });
         }
@@ -173,43 +228,52 @@ async function autoLocalizeDevices() {
             let localizationAttempted = false;
             
             devicesData.devices.forEach(device => {
-                if (device.rssi_readings && Object.keys(device.rssi_readings).length >= 3) {
-                    localizeDeviceIfReady(device.id);
+                if (shouldAutoLocalize(device)) {
+                    localizeDeviceIfReady(device);
                     localizationAttempted = true;
                 }
             });
-            
-            if (localizationAttempted) {
-                // Refresh after a short delay to show updated positions
-                setTimeout(() => loadData(), 2000);
-            }
         }
     } catch (error) {
         console.error('Error in auto-localization:', error);
     }
 }
 
-async function localizeDeviceIfReady(deviceId) {
+async function localizeDeviceIfReady(deviceOrId) {
     try {
+        const device = typeof deviceOrId === 'string'
+            ? { id: deviceOrId, rssi_readings: {} }
+            : deviceOrId;
+        const deviceId = device.id;
+        if (!device || !shouldAutoLocalize(device)) {
+            return;
+        }
+
+        markAutoLocalizationStart(device);
+
         // Attempt trilateration with current RSSI data
         const response = await fetch(`/api/localize/${deviceId}`, {
             method: 'POST'
         });
         const data = await response.json();
+        const signature = buildRssiSignature(device);
         
         if (data.success) {
             console.log(`✓ Auto-localized ${deviceId}: (${data.position.x.toFixed(2)}, ${data.position.y.toFixed(2)}, ${data.position.z.toFixed(2)})m`);
-            
-            // Refresh device list to show updated position
-            loadData();
+            markAutoLocalizationComplete(deviceId, signature);
             
             // If modal is open and showing this device, update it
             if (selectedDevice && selectedDevice.id === deviceId) {
-                showDeviceDetails(selectedDevice);
+                const refreshed = { ...selectedDevice, location: data.position };
+                selectedDevice = refreshed;
+                updateModalRSSIAndStatus(refreshed);
             }
+        } else {
+            markAutoLocalizationComplete(deviceId, signature);
         }
     } catch (error) {
         console.error(`Error auto-localizing ${deviceId}:`, error);
+        markAutoLocalizationComplete(deviceId);
     }
 }
 
@@ -235,7 +299,7 @@ function createDeviceCard(device) {
     const batteryIcon = getBatteryIcon(device.battery_level);
     
     // Calculate RSSI measurement count
-    const rssiCount = device.rssi_readings ? Object.keys(device.rssi_readings).length : 0;
+    const rssiCount = getValidRssiCount(device.rssi_readings);
     const localizationReady = rssiCount >= 3;
     const readyIndicator = localizationReady ? '✓ Ready' : `${rssiCount}/3`;
     const readyClass = localizationReady ? 'badge-success' : 'badge-warning';
@@ -327,7 +391,7 @@ function showDeviceDetails(device) {
     
     // Calculate RSSI metrics
     const rssiReadings = device.rssi_readings || {};
-    const rssiCount = Object.keys(rssiReadings).length;
+    const rssiCount = getValidRssiCount(rssiReadings);
     const localizationReady = rssiCount >= 3;
     
     // Build detailed info with localization data
@@ -422,15 +486,15 @@ function showDeviceDetails(device) {
             <div class="detail-section full-width">
                 <h3>📡 RSSI Readings from Anchors</h3>
                 <table class="detail-table">
-                    ${Object.entries(rssiReadings).map(([node, rssi]) => {
-                        const distance = estimateDistance(rssi);
+                    ${getValidRssiEntries(rssiReadings).map(([node, rssi]) => {
+                        const distance = estimateDistance(node, rssi);
                         return `
                         <tr>
                             <td><strong>${node.toUpperCase()}:</strong></td>
                             <td>
                                 <code>${rssi}</code> dBm 
                                 <span style="color: #999; font-size: 0.9em;">
-                                    (${getRSSIStrength(rssi)} ~ ${distance.toFixed(1)}m)
+                                    (${getRSSIStrength(calibrateRssi(node, rssi))} ~ ${distance.toFixed(1)}m)
                                 </span>
                             </td>
                         </tr>
@@ -503,9 +567,9 @@ function updateModalRSSIAndStatus(device) {
         const rssiTable = document.querySelector('#modalBody .detail-section.full-width .detail-table');
         if (rssiTable) {
             // rebuild RSSI rows
-            const rows = Object.entries(rssiReadings).map(([node, rssi]) => {
-                const distance = estimateDistance(rssi);
-                return `<tr><td><strong>${node.toUpperCase()}:</strong></td><td><code>${rssi}</code> dBm <span style="color: #999; font-size: 0.9em;">(${getRSSIStrength(rssi)} ~ ${distance.toFixed(1)}m)</span></td></tr>`;
+            const rows = getValidRssiEntries(rssiReadings).map(([node, rssi]) => {
+                const distance = estimateDistance(node, rssi);
+                return `<tr><td><strong>${node.toUpperCase()}:</strong></td><td><code>${rssi}</code> dBm <span style="color: #999; font-size: 0.9em;">(${getRSSIStrength(calibrateRssi(node, rssi))} ~ ${distance.toFixed(1)}m)</span></td></tr>`;
             }).join('');
             rssiTable.querySelector('tbody')?.remove();
             // simple approach: find parent and replace innerHTML for RSSI block
@@ -515,7 +579,7 @@ function updateModalRSSIAndStatus(device) {
                 const tableHtml = `<table class="detail-table">${rows}</table>`;
                 // replace the section's innerHTML but preserve header
                 const header = '<h3>📡 RSSI Readings from Anchors</h3>';
-                rssiSection.innerHTML = header + tableHtml + (Object.keys(rssiReadings).length === 0 ? '<p style="color: #ff9800; padding: 10px;">No RSSI data yet. Trigger location request to collect RSSI readings.</p>' : '');
+                rssiSection.innerHTML = header + tableHtml + (getValidRssiCount(rssiReadings) === 0 ? '<p style="color: #ff9800; padding: 10px;">No RSSI data yet. Trigger location request to collect RSSI readings.</p>' : '');
             }
         }
         // update basic status/battery in modal (if present)
@@ -821,18 +885,22 @@ function getRSSIStrength(rssi) {
     return '(Critical)';
 }
 
-function estimateDistance(rssi) {
-    // RSSI to distance conversion using log-distance path loss model
-    // d = 10^((TX_POWER - RSSI) / (10 * n))
-    // RSSI closer to 0 = nearer, more negative = farther
-    // TX_POWER = -40 dBm (reference at 1m), n = 2.5 (indoor LoRa)
-    const txPower = -40;
-    const pathLossExponent = 2.5;
-    const pathLoss = txPower - rssi;
+function calibrateRssi(nodeId, rssi) {
+    if (nodeId === 'gateway') {
+        return rssi - 50;
+    }
+    return rssi;
+}
+
+function estimateDistance(nodeId, rssi) {
+    const calibratedRssi = calibrateRssi(nodeId, rssi);
+    const referenceRssiAtOneMeter = -50;
+    const pathLossExponent = 2.2;
+    const pathLoss = referenceRssiAtOneMeter - calibratedRssi;
     const distance = Math.pow(10, pathLoss / (10 * pathLossExponent));
     
     // Clamp to reasonable range
-    return Math.max(0.5, Math.min(50, distance));
+    return Math.max(0.25, Math.min(50, distance));
 }
 
 function formatTimestamp(timestamp) {

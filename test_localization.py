@@ -8,7 +8,7 @@ import math
 import logging
 from datetime import datetime
 import numpy as np
-from anchor_layout import FIXED_DEVICE_HEIGHT_METERS, REFERENCE_RSSI_AT_1_METER
+from anchor_layout import FIXED_DEVICE_HEIGHT_METERS, REFERENCE_RSSI_AT_1_METER, get_rssi_offset
 
 # Configure logging
 logging.basicConfig(
@@ -28,8 +28,9 @@ except ImportError as e:
 ANCHORS = get_default_anchors()
 
 
-def distance_to_rssi(distance: float) -> int:
-    return int(round(REFERENCE_RSSI_AT_1_METER - 10 * RSSIToDistance.PATH_LOSS_EXPONENT * math.log10(max(distance, 0.25))))
+def distance_to_rssi(distance: float, node_id: str | None = None) -> int:
+    modeled_rssi = REFERENCE_RSSI_AT_1_METER - 10 * RSSIToDistance.PATH_LOSS_EXPONENT * math.log10(max(distance, 0.25))
+    return int(round(modeled_rssi - get_rssi_offset(node_id or '')))
 
 
 def test_rssi_to_distance():
@@ -98,7 +99,7 @@ def test_with_simulated_data():
         
         for node_id, anchor in ANCHORS.items():
             distance = float(np.linalg.norm(true_pos - anchor.position()))
-            rssi_ideal = REFERENCE_RSSI_AT_1_METER - 10 * RSSIToDistance.PATH_LOSS_EXPONENT * math.log10(distance)
+            rssi_ideal = distance_to_rssi(distance, node_id)
             
             # Add some noise (typical measurement error)
             noise = np.random.normal(0, 0.5)
@@ -165,7 +166,7 @@ def test_with_manual_rssi():
     
     print(f"\n  RSSI readings:")
     for node_id, rssi in rssi_readings.items():
-        distance = RSSIToDistance.rssi_to_distance(rssi)
+        distance = RSSIToDistance.rssi_to_distance(rssi, node_id=node_id)
         print(f"    {node_id:<8} {rssi:4d} dBm → {distance:.2f}m")
     
     # Perform localization
@@ -203,7 +204,7 @@ def test_2d_vs_3d():
     rssi_readings = {}
     for node_id, anchor in ANCHORS.items():
         distance = float(np.linalg.norm(true_pos - anchor.position()))
-        rssi = distance_to_rssi(distance)
+        rssi = distance_to_rssi(distance, node_id)
         rssi_readings[node_id] = rssi
     
     print(f"\n  True position: ({true_pos[0]:.1f}, {true_pos[1]:.1f}, {true_pos[2]:.1f})")
@@ -254,7 +255,7 @@ def test_direct_coordinate_calculation():
     rssi_values = {}
     for node_id, anchor in ANCHORS.items():
         distance = float(np.linalg.norm(true_pos - anchor.position()))
-        rssi_values[node_id] = distance_to_rssi(distance)
+        rssi_values[node_id] = distance_to_rssi(distance, node_id)
 
     result = calculate_coordinates_from_rssi(
         gateway_rssi=rssi_values['gateway'],
