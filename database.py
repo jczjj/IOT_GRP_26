@@ -61,6 +61,16 @@ def init_database(db_path: str = DB_PATH):
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    # Devices table for pathalgo.py
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS devices_location (
+            device_id INTEGER PRIMARY KEY,
+            x REAL,
+            y REAL,
+            z REAL
+        )
+    ''')
     
     # RSSI readings table - stores signal strength measurements
     cursor.execute('''
