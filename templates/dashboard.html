@@ -11,8 +11,10 @@
 <body>
     <div class="container">
         <header>
-            <h1>Elderly Home Monitoring System</h1>
-            <p>RSSI-Based Localization with Wi-Fi Hopping</p>
+            <div>
+                <h1>Patient Monitoring</h1>
+                <p>RSSI-Based Localisation &mdash; IoT Group 26</p>
+            </div>
         </header>
 
         <div class="main-content">
@@ -47,11 +49,9 @@
                 <div class="panel-header">
                     <h2>Patient Devices</h2>
                     <div class="panel-controls">
-                        <div style="display:flex; gap:0.5rem; align-items:center;">
-                            <button id="updateAllLocationsBtn" class="btn btn-primary">Update Location for all devices</button>
-                            <button id="jobsMenuBtn" class="btn btn-secondary">Jobs</button>
-                            <span id="deviceCount" class="badge">0</span>
-                        </div>
+                        <button id="updateAllLocationsBtn" class="btn btn-primary">&#x21bb; Update All Locations</button>
+                        <button id="jobsMenuBtn" class="btn btn-secondary">&#x1F4CB; Jobs</button>
+                        <span id="deviceCount" class="badge badge-secondary">0</span>
                     </div>
                 </div>
                 <div id="deviceList" class="device-list">
@@ -69,9 +69,9 @@
                     <!-- Populated by JavaScript -->
                 </div>
                 <div class="modal-actions">
-                    <button id="locateBtn" class="btn btn-primary">Update Location</button>
-                    <button id="requestImageBtn" class="btn btn-success">Request Image</button>
-                    <button id="viewImageBtn" class="btn btn-info" style="display: none;">View Image</button>
+                    <button id="locateBtn" class="btn btn-primary">&#x1F4CD; Update Location</button>
+                    <button id="requestImageBtn" class="btn btn-success">&#x1F4F7; Request Image</button>
+                    <button id="viewImageBtn" class="btn btn-info" style="display: none;">&#x1F5BC; View Image</button>
                 </div>
             </div>
         </div>

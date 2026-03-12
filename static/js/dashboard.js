@@ -10,7 +10,16 @@ let dataRefreshInterval = null;
 let autoLocalizeInterval = null;
 let jobConsoleVisible = false;
 let deviceModalPollInterval = null;
+// Single active job poll controller so multiple polls don't fight each other
+let activeJobPollInterval = null;
+let activeJobFocusedId = null;
 const autoLocalizationState = new Map();
+// Current device jobs shown in the device modal (used by tab handler)
+let currentDeviceJobsForModal = null;
+// Currently opened job id inside the device modal detail pane (for live updates)
+let currentDeviceJobDetailId = null;
+// Poll interval for the currently-open device job detail
+let deviceJobDetailPollInterval = null;
 
 function getValidRssiEntries(rssiReadings) {
     return Object.entries(rssiReadings || {}).filter(([, rssi]) => Number.isFinite(rssi));
@@ -136,10 +145,16 @@ function setupEventListeners() {
     if (jobsMenuBtn) {
         jobsMenuBtn.addEventListener('click', async () => {
             try {
+                // Stop any active focused job polling so the jobs list remains visible
+                if (activeJobPollInterval) {
+                    clearInterval(activeJobPollInterval);
+                    activeJobPollInterval = null;
+                    activeJobFocusedId = null;
+                }
                 const resp = await fetch('/api/update-all-locations/jobs');
                 const data = await resp.json();
                 if (data.success) {
-                    document.getElementById('jobConsole').style.display = 'block';
+                    document.getElementById('jobConsole').style.display = 'flex';
                     jobConsoleVisible = true;
                     renderJobsList(data.jobs);
                 } else {
@@ -312,38 +327,24 @@ function createDeviceCard(device) {
     card.innerHTML = `
         <div class="device-header">
             <h3>${device.patient_name}</h3>
-            <span class="badge badge-${statusClass}">${device.status}</span>
+            <span class="status-pill status-${statusClass}">${device.status}</span>
         </div>
         <div class="device-info">
             <div class="info-row">
-                <span class="label">Device ID:</span>
-                <span class="value">${device.id}</span>
+                <span class="label">Device ID</span>
+                <span class="value mono">${device.id}</span>
             </div>
             <div class="info-row">
-                <span class="label">Room:</span>
+                <span class="label">Room</span>
                 <span class="value">${device.room}</span>
             </div>
             <div class="info-row">
-                <span class="label">Battery:</span>
-                <span class="value">${batteryIcon} ${device.battery_level}%</span>
+                <span class="label">Position</span>
+                <span class="value mono">(${device.location.x.toFixed(1)}, ${device.location.y.toFixed(1)}, ${device.location.z.toFixed(1)}) m</span>
             </div>
             <div class="info-row">
-                <span class="label">Heart Rate:</span>
-                <span class="value">${device.heart_rate || '—'} bpm</span>
-            </div>
-            <div class="info-row">
-                <span class="label">Temperature:</span>
-                <span class="value">${device.temperature || '—'}°C</span>
-            </div>
-            <div class="info-row">
-                <span class="label">Position (X,Y,Z):</span>
-                <span class="value" style="font-family: monospace; font-size: 0.9em;">
-                    ${device.location.x.toFixed(1)}m, ${device.location.y.toFixed(1)}m, ${device.location.z.toFixed(1)}m
-                </span>
-            </div>
-            <div class="info-row">
-                <span class="label">Localization:</span>
-                <span class="value badge ${readyClass}">${readyIndicator}</span>
+                <span class="label">RSSI Nodes</span>
+                <span class="value"><span class="badge badge-${readyClass}">${readyIndicator}</span></span>
             </div>
         </div>
     `;
@@ -369,7 +370,7 @@ function createDeviceCard(device) {
                 if (logs.length === 0) {
                     logsContainer.innerHTML = '<div style="color:var(--text-muted)">No recent job logs</div>';
                 } else {
-                    const snippet = logs.slice(-3).map(l => `<div class="device-log-line">${escapeHtml(l)}</div>`).join('');
+                    const snippet = logs.slice(-3).map(l => formatLogHtml(l, 'device-log-line')).join('');
                     logsContainer.innerHTML = `<div style="font-weight:600;margin-bottom:4px;">Recent Logs</div>${snippet}`;
                 }
             } else {
@@ -406,90 +407,68 @@ function showDeviceDetails(device) {
                 <h3>Patient Information</h3>
                 <table class="detail-table">
                     <tr>
-                        <td><strong>Name:</strong></td>
+                        <td><strong>Name</strong></td>
                         <td>${device.patient_name}</td>
                     </tr>
                     <tr>
-                        <td><strong>Room:</strong></td>
+                        <td><strong>Room</strong></td>
                         <td>${device.room}</td>
                     </tr>
                     <tr>
-                        <td><strong>Device ID:</strong></td>
+                        <td><strong>Device ID</strong></td>
                         <td><code>${device.id}</code></td>
-                    </tr>
-                </table>
-            </div>
-            
-            <div class="detail-section">
-                <h3>Device Status</h3>
-                <table class="detail-table">
-                    <tr>
-                        <td><strong>Status:</strong></td>
-                        <td><span class="badge badge-${getStatusClass(device.status)}">${device.status}</span></td>
-                    </tr>
-                    <tr>
-                        <td><strong>Battery:</strong></td>
-                        <td>${getBatteryIcon(device.battery_level)} ${device.battery_level}%</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Last Uplink:</strong></td>
-                        <td>${formatTimestamp(device.last_uplink)}</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Wi-Fi Capable:</strong></td>
-                        <td>${device.wifi_capable ? '✓ Yes' : '✗ No'}</td>
                     </tr>
                 </table>
             </div>
 
             <div class="detail-section">
-                <h3>Job Status</h3>
-                <div id="deviceJobStatus">Loading...</div>
-            </div>
-            
-            <div class="detail-section">
-                <h3>Health Metrics</h3>
+                <h3>Device Status</h3>
                 <table class="detail-table">
                     <tr>
-                        <td><strong>Heart Rate:</strong></td>
-                        <td>${device.heart_rate || '—'} bpm</td>
+                        <td><strong>Status</strong></td>
+                        <td><span class="status-pill status-${getStatusClass(device.status)}">${device.status}</span></td>
                     </tr>
                     <tr>
-                        <td><strong>Temperature:</strong></td>
-                        <td>${device.temperature || '—'}°C</td>
+                        <td><strong>Last Uplink</strong></td>
+                        <td>${formatTimestamp(device.last_uplink)}</td>
                     </tr>
                 </table>
             </div>
-            
+
             <div class="detail-section">
-                <h3>📍 Calculated Position (RSSI-Based)</h3>
+                <h3>Location Job</h3>
+                <div id="deviceJobStatus">Loading...</div>
+            </div>
+
+            <div class="detail-section">
+                <h3>Calculated Position</h3>
                 <table class="detail-table">
                     <tr>
-                        <td><strong>X Coordinate:</strong></td>
+                        <td><strong>X</strong></td>
                         <td><code>${device.location.x.toFixed(3)}</code> m</td>
                     </tr>
                     <tr>
-                        <td><strong>Y Coordinate:</strong></td>
+                        <td><strong>Y</strong></td>
                         <td><code>${device.location.y.toFixed(3)}</code> m</td>
                     </tr>
                     <tr>
-                        <td><strong>Z Coordinate (Height):</strong></td>
+                        <td><strong>Z (Height)</strong></td>
                         <td><code>${device.location.z.toFixed(3)}</code> m</td>
                     </tr>
                     <tr>
-                        <td><strong>Measurements Available:</strong></td>
+                        <td><strong>Anchor Nodes</strong></td>
                         <td>
-                            <span class="badge ${localizationReady ? 'badge-success' : 'badge-warning'}">
-                                ${rssiCount}/4 anchors
+                            <span class="badge badge-${localizationReady ? 'success' : 'warning'}">
+                                ${rssiCount}/4
                             </span>
-                            ${localizationReady ? ' ✓ Ready for localization' : ' Need more data'}
+                            ${localizationReady ? ' ✓ Ready' : ' Need more data'}
                         </td>
                     </tr>
                 </table>
             </div>
             
             <div class="detail-section full-width">
-                <h3>📡 RSSI Readings from Anchors</h3>
+                <h3>RSSI Readings</h3>
                 <table class="detail-table">
                     ${getValidRssiEntries(rssiReadings).map(([node, rssi]) => {
                         const distance = estimateDistance(node, rssi);
@@ -506,7 +485,7 @@ function showDeviceDetails(device) {
                     `;
                     }).join('')}
                 </table>
-                ${rssiCount === 0 ? '<p style="color: #ff9800; padding: 10px;">No RSSI data yet. Trigger location request to collect RSSI readings.</p>' : ''}
+                ${rssiCount === 0 ? '<p class="empty-note">No RSSI data yet. Trigger a location request to collect readings.</p>' : ''}
             </div>
         </div>
     `;
@@ -525,6 +504,7 @@ function closeModal() {
     modal.style.display = 'none';
     selectedDevice = null;
     stopDeviceModalPolling();
+    currentDeviceJobDetailId = null;
 }
 
 
@@ -553,7 +533,7 @@ function startDeviceModalPolling(deviceId) {
         } catch (e) {
             console.error('Error polling device modal data:', e);
         }
-    }, 2000);
+    }, 1000);
 }
 
 
@@ -605,34 +585,196 @@ function renderDeviceJobStatus(deviceJobs) {
     if (!container) return;
     if (!deviceJobs || deviceJobs.length === 0) {
         container.innerHTML = '<div style="color:var(--text-gray)">No active jobs</div>';
+        // enable locate button when no active jobs
+        const locateBtn = document.getElementById('locateBtn');
+        if (locateBtn) locateBtn.disabled = false;
         return;
     }
-    // Render each job affecting this device. Show device-specific status prominently,
-    // with the overall job status and timestamps secondary.
-    const html = deviceJobs.map(j => {
-        const logs = (j.device_logs || []).slice(-6).map(l => `<div class="job-log">${escapeHtml(l)}</div>`).join('');
-        const deviceStatus = j.device_status || '—';
-        const jobStatus = j.job_status || '—';
-        const reqAt = j.requested_at ? `Requested: ${j.requested_at}` : '';
-        const doneAt = j.completed_at ? `Completed: ${j.completed_at}` : '';
+    // Render as a compact jobs list. Clicking "Open" will show logs in the
+    // main job console popup so modal stays compact.
+    currentDeviceJobsForModal = deviceJobs;
 
-        return `
-            <div style="padding:8px;background:var(--bg-light);border-radius:6px;margin-bottom:8px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <div style="font-weight:700;">Device Status: <span style="color:var(--primary-color);">${escapeHtml(deviceStatus)}</span></div>
-                    <div style="font-size:0.85rem;color:var(--text-gray);">Job: ${escapeHtml(j.job_id)} • ${escapeHtml(jobStatus)}</div>
-                </div>
-                <div style="font-size:0.85rem;color:var(--text-gray);margin-top:6px;">${escapeHtml(reqAt)} ${escapeHtml(doneAt)}</div>
-                <div style="margin-top:8px;">${logs || '<div style="color:var(--text-gray)">No device logs yet</div>'}</div>
-            </div>
-        `;
+    const jobListHtml = deviceJobs.map(j => {
+        const jobStatus = j.job_status || j.status || '—';
+        const updatedCount = j.updated_count || (j.updated_devices || []).length || 0;
+        const numDevices = j.num_devices || (j.device_ids || []).length || 0;
+        return `<div style="padding:8px;background:var(--bg-light);border-radius:6px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">
+                    <div style="min-width:0;">
+                        <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px">${escapeHtml(j.job_id)}</div>
+                        <div style="font-size:0.85rem;color:var(--text-gray)">${escapeHtml(jobStatus)} • ${updatedCount}/${numDevices} • ${escapeHtml(j.requested_at || '')}</div>
+                    </div>
+                    <div>
+                        <button class="btn btn-tertiary" onclick="openDeviceJobPopup('${escapeHtml(j.job_id)}')">Open</button>
+                    </div>
+                </div>`;
     }).join('');
 
-    container.innerHTML = html;
+    container.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px;">${jobListHtml}</div>`;
+
+    // If any job for this device is queued/in_progress, mark the locate button visually
+    // but do NOT set the `disabled` attribute so clicks still fire and can surface errors.
+    const hasActive = deviceJobs.some(j => ['queued','in_progress'].includes(j.job_status || j.status));
+    const locateBtn = document.getElementById('locateBtn');
+    if (locateBtn) {
+        if (hasActive) {
+            locateBtn.classList.add('btn-disabled');
+            locateBtn.setAttribute('aria-disabled', 'true');
+            locateBtn.title = 'Localization in progress for this device';
+        } else {
+            locateBtn.classList.remove('btn-disabled');
+            locateBtn.removeAttribute('aria-disabled');
+            locateBtn.title = '';
+        }
+    }
+    // If a job detail pane is open, refresh its contents so logs update in real-time
+    if (currentDeviceJobDetailId) {
+        try { showDeviceJobDetail(currentDeviceJobDetailId); } catch (e) { console.debug('Error refreshing device job detail:', e); }
+    }
+}
+
+// Show logs/details for a specific job in the device modal.
+function showDeviceJobDetail(jobId) {
+    // Track the active detail and start a focused poll against the full job
+    // status endpoint so logs update exactly like the main Job Console.
+    currentDeviceJobDetailId = jobId;
+
+    // Clear any existing focused poll
+    if (deviceJobDetailPollInterval) {
+        clearInterval(deviceJobDetailPollInterval);
+        deviceJobDetailPollInterval = null;
+    }
+
+    const detail = document.getElementById('deviceJobDetail');
+    if (!detail) return;
+
+    async function fetchAndRender() {
+        try {
+            const resp = await fetch(`/api/update-all-locations/status/${encodeURIComponent(jobId)}`);
+            const data = await resp.json();
+            if (!data.success || !data.job) {
+                detail.innerHTML = '<div style="color:var(--text-gray)">Job not found</div>';
+                return;
+            }
+            const job = data.job;
+            const deviceId = selectedDevice ? selectedDevice.id : null;
+            const dev = deviceId ? (job.devices || {})[deviceId] || {} : {};
+
+            const deviceStatus = dev.status || dev.device_status || '—';
+            const reqAt = job.requested_at ? `Requested: ${job.requested_at}` : '';
+            const doneAt = job.completed_at ? `Completed: ${job.completed_at}` : '';
+
+            const logsArr = (dev.logs || dev.device_logs || []);
+            const logs = logsArr.slice().map(l => formatLogHtml(l, 'job-log')).join('') || '<div style="color:var(--text-gray)">No device logs yet</div>';
+
+            detail.innerHTML = `
+                <div style="padding:8px;background:var(--bg-light);border-radius:6px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <div style="font-weight:700;">Device Status: <span style="color:var(--primary-color);">${escapeHtml(deviceStatus)}</span></div>
+                        <div style="font-size:0.85rem;color:var(--text-gray);">Job: ${escapeHtml(jobId)} • ${escapeHtml(job.status || '')}</div>
+                    </div>
+                    <div style="font-size:0.85rem;color:var(--text-gray);margin-top:6px;">${escapeHtml(reqAt)} ${escapeHtml(doneAt)}</div>
+                    <div style="margin-top:8px;">${logs}</div>
+                </div>
+            `;
+
+            // Stop polling when job completes
+            if (!['queued', 'in_progress'].includes(job.status)) {
+                if (deviceJobDetailPollInterval) {
+                    clearInterval(deviceJobDetailPollInterval);
+                    deviceJobDetailPollInterval = null;
+                    currentDeviceJobDetailId = null;
+                }
+            }
+        } catch (e) {
+            console.debug('Error fetching job detail status:', e);
+        }
+    }
+
+    fetchAndRender();
+    deviceJobDetailPollInterval = setInterval(fetchAndRender, 1000);
+}
+
+// Open device job logs in the main Job Console popup so modal stays compact.
+function openDeviceJobPopup(jobId) {
+    if (!currentDeviceJobsForModal) return;
+    const job = currentDeviceJobsForModal.find(j => j.job_id === jobId);
+    if (!job) return;
+
+    const jobConsole = document.getElementById('jobConsole');
+    const jobBody = document.getElementById('jobConsoleBody');
+    const headerH3 = document.querySelector('#jobConsole .job-console-header h3');
+    if (jobConsole && jobBody) {
+        // Update header and body with job-specific content
+        if (headerH3) headerH3.textContent = `Job: ${job.job_id}`;
+        const jobLogs = (job.device_logs || []).slice().map(l => formatLogHtml(l, 'job-log')).join('') || '<div style="color:var(--text-gray)">No device logs yet</div>';
+        const deviceStatus = job.device_status || '—';
+        const reqAt = job.requested_at ? `Requested: ${job.requested_at}` : '';
+        const doneAt = job.completed_at ? `Completed: ${job.completed_at}` : '';
+
+        jobBody.innerHTML = `
+            <div style="padding:8px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div style="font-weight:700;">Device Status: <span style="color:var(--primary-color);">${escapeHtml(deviceStatus)}</span></div>
+                    <div style="font-size:0.85rem;color:var(--text-gray);">Job: ${escapeHtml(job.job_id)} • ${escapeHtml(job.job_status || job.status || '')}</div>
+                </div>
+                <div style="font-size:0.85rem;color:var(--text-gray);margin-top:6px;">${escapeHtml(reqAt)} ${escapeHtml(doneAt)}</div>
+                <hr/>
+                <div>${jobLogs}</div>
+            </div>
+        `;
+
+        jobConsole.style.display = 'flex';
+        jobConsoleVisible = true;
+
+        // Start a focused poll for this job so the console updates in real-time,
+        // mirroring the behavior of `openJob()`.
+        if (activeJobPollInterval) {
+            clearInterval(activeJobPollInterval);
+            activeJobPollInterval = null;
+            activeJobFocusedId = null;
+        }
+        activeJobFocusedId = jobId;
+        activeJobPollInterval = setInterval(async () => {
+            try {
+                const sresp = await fetch(`/api/update-all-locations/status/${jobId}`);
+                const sdata = await sresp.json();
+                if (sdata.success) {
+                    renderJobConsole(jobId, sdata.job);
+                    if (!['queued','in_progress'].includes(sdata.job.status)) {
+                        clearInterval(activeJobPollInterval);
+                        activeJobPollInterval = null;
+                        activeJobFocusedId = null;
+                    }
+                }
+            } catch (e) {
+                console.error('Error polling opened job from device modal:', e);
+                clearInterval(activeJobPollInterval);
+                activeJobPollInterval = null;
+                activeJobFocusedId = null;
+            }
+        }, 1000);
+    }
 }
 
 async function triggerLocalization(deviceId) {
     try {
+        // Check device job status first; if a locate job is already active,
+        // inform the user rather than attempting to start another.
+        try {
+            const statusResp = await fetch(`/api/device-job-status/${deviceId}`);
+            const statusData = await statusResp.json();
+            if (statusData.success && Array.isArray(statusData.device_jobs)) {
+                const hasActive = statusData.device_jobs.some(j => ['queued','in_progress'].includes(j.job_status || j.status));
+                if (hasActive) {
+                    showToast('Localization in progress, please try again later', 'error', 7000);
+                    return;
+                }
+            }
+        } catch (e) {
+            // ignore errors from status check and proceed
+            console.debug('Could not check device job status before triggering localization:', e);
+        }
+
         showToast('Starting device locate job...', 'info');
 
         // Create a per-device locate job which will be tracked separately
@@ -641,9 +783,15 @@ async function triggerLocalization(deviceId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ timeout: 30 })
         });
-        const data = await response.json();
+        let data;
+        try {
+            data = await response.json();
+        } catch (e) {
+            showToast('Failed to start locate job', 'error', 7000);
+            return;
+        }
 
-        if (data.success && data.job_id) {
+        if (response.ok && data.success && data.job_id) {
             showToast(`Locate job started (id: ${data.job_id}). Waiting for RSSI...`, 'success');
             // Ensure modal shows job status (modal polling will pick up the new job within next poll)
             // Force an immediate device-job-status fetch and render
@@ -655,7 +803,7 @@ async function triggerLocalization(deviceId) {
                 console.debug('Could not fetch job immediately:', e);
             }
         } else {
-            showToast('Failed to start locate job: ' + (data.error || 'unknown'), 'error');
+            showToast('Failed to start locate job: ' + (data && data.error ? data.error : response.statusText || 'unknown'), 'error', 7000);
         }
     } catch (error) {
         console.error('Error triggering localization:', error);
@@ -696,7 +844,7 @@ async function updateAllLocations() {
         // Show console immediately so user sees progress area and mark it visible
         const jobConsole = document.getElementById('jobConsole');
         if (jobConsole) {
-            jobConsole.style.display = 'block';
+            jobConsole.style.display = 'flex';
             jobConsoleVisible = true;
             const body = document.getElementById('jobConsoleBody');
             if (body) body.innerHTML = `<div>Starting update job... awaiting server response</div>`;
@@ -708,24 +856,40 @@ async function updateAllLocations() {
             body: JSON.stringify({ timeout: 60 })
         });
 
-        const data = await response.json();
-        if (!data.success || !data.job_id) {
+        let data;
+        try {
+            data = await response.json();
+        } catch (e) {
             showToast('Failed to start update job', 'error');
+            return;
+        }
+
+        if (!response.ok || !data.success || !data.job_id) {
+            const msg = data && data.error ? data.error : response.statusText || 'Failed to start update job';
+            showToast(msg, 'error', 7000);
             return;
         }
 
         const jobId = data.job_id;
         showToast(`Update job started (id: ${jobId}). Polling status...`, 'info', 3000);
 
-        // Poll job status until done/failed
+        // Poll job status until done/failed. Clear any existing job poll first
+        if (activeJobPollInterval) {
+            clearInterval(activeJobPollInterval);
+            activeJobPollInterval = null;
+            activeJobFocusedId = null;
+        }
+        activeJobFocusedId = jobId;
         const pollInterval = 1000;
-        const poll = setInterval(async () => {
+        activeJobPollInterval = setInterval(async () => {
             try {
                 const stResp = await fetch(`/api/update-all-locations/status/${jobId}`);
                 const stData = await stResp.json();
                 if (!stData.success) {
                     showToast('Failed to fetch job status', 'error');
-                    clearInterval(poll);
+                    clearInterval(activeJobPollInterval);
+                    activeJobPollInterval = null;
+                    activeJobFocusedId = null;
                     return;
                 }
 
@@ -733,7 +897,7 @@ async function updateAllLocations() {
                 try {
                     renderJobConsole(jobId, job);
                     if (jobConsoleVisible) {
-                        document.getElementById('jobConsole').style.display = 'block';
+                        document.getElementById('jobConsole').style.display = 'flex';
                     }
                 } catch (e) {
                     console.error('Error rendering job console:', e);
@@ -742,19 +906,25 @@ async function updateAllLocations() {
                 if (job.status === 'in_progress' || job.status === 'queued') {
                     // in progress — rendering above
                 } else if (job.status === 'done') {
-                    clearInterval(poll);
+                    clearInterval(activeJobPollInterval);
+                    activeJobPollInterval = null;
+                    activeJobFocusedId = null;
                     const updated = (job.updated_devices || []).length;
                     const pending = (job.pending_devices || []).length;
                     showToast(`Update complete. Updated: ${updated}, Pending: ${pending}`, 'success', 5000);
                     setTimeout(() => loadData(), 1200);
                 } else if (job.status === 'failed') {
-                    clearInterval(poll);
+                    clearInterval(activeJobPollInterval);
+                    activeJobPollInterval = null;
+                    activeJobFocusedId = null;
                     showToast(`Update failed: ${job.error || 'unknown'}`, 'error', 7000);
                     setTimeout(() => loadData(), 1200);
                 }
             } catch (err) {
                 console.error('Error polling job status:', err);
-                clearInterval(poll);
+                clearInterval(activeJobPollInterval);
+                activeJobPollInterval = null;
+                activeJobFocusedId = null;
                 showToast('Error polling job status', 'error');
             }
         }, pollInterval);
@@ -768,6 +938,12 @@ async function updateAllLocations() {
 function renderJobConsole(jobId, job) {
     const body = document.getElementById('jobConsoleBody');
     if (!body) return;
+    // Preserve user's scroll position relative to bottom so updates don't
+    // force the view to jump to the top while the user is reading logs.
+    const prevScrollTop = body.scrollTop;
+    const prevScrollHeight = body.scrollHeight;
+    const prevClientHeight = body.clientHeight;
+    const distanceFromBottom = prevScrollHeight - prevScrollTop - prevClientHeight;
     // Header + progress
     const total = (job.device_ids || []).length;
     const updatedCount = (job.updated_devices || []).length;
@@ -798,16 +974,23 @@ function renderJobConsole(jobId, job) {
     devicesHtml += '</tbody></table>';
 
     // Job-level logs
-    const jobLogs = (job.logs || []).slice(-20).map(l => `<div class="job-log">${escapeHtml(l)}</div>`).join('');
+    const jobLogs = (job.logs || []).slice(-20).map(l => formatLogHtml(l, 'job-log')).join('');
 
     // Expandable per-device logs area
     const deviceLogs = Object.keys(devices).map(did => {
         const dev = devices[did] || {};
-        const logs = (dev.logs || []).map(l => `<div class="job-log">${escapeHtml(l)}</div>`).join('');
+        const logs = (dev.logs || []).map(l => formatLogHtml(l, 'job-log')).join('');
         return `<div style="margin-bottom:8px;"><strong>${did}</strong><div style="margin-top:6px;">${logs || '<span style="color:var(--text-gray)">No logs</span>'}</div></div>`;
     }).join('');
 
-    body.innerHTML = header + devicesHtml + '<hr/>' + `<div class="job-logs"><h4>Job Logs</h4>${jobLogs}</div>` + '<hr/>' + `<div><h4>Device Logs</h4>${deviceLogs}</div>`;
+    const newHtml = header + devicesHtml + '<hr/>' + `<div class="job-logs"><h4>Job Logs</h4>${jobLogs}</div>` + '<hr/>' + `<div><h4>Device Logs</h4>${deviceLogs}</div>`;
+    body.innerHTML = newHtml;
+
+    // Restore scroll to keep user's relative position from bottom stable.
+    const newScrollHeight = body.scrollHeight;
+    const newClientHeight = body.clientHeight;
+    const newScrollTop = Math.max(0, newScrollHeight - newClientHeight - distanceFromBottom);
+    body.scrollTop = newScrollTop;
 }
 
 
@@ -838,12 +1021,42 @@ function renderJobsList(jobs) {
 
 async function openJob(jobId) {
     try {
+        // When user opens a job, stop any existing automatic job polling so
+        // the console sticks to the job the user requested.
+        if (activeJobPollInterval) {
+            clearInterval(activeJobPollInterval);
+            activeJobPollInterval = null;
+            activeJobFocusedId = null;
+        }
+
         const resp = await fetch(`/api/update-all-locations/status/${jobId}`);
         const data = await resp.json();
         if (data.success) {
-            document.getElementById('jobConsole').style.display = 'block';
+            document.getElementById('jobConsole').style.display = 'flex';
             jobConsoleVisible = true;
             renderJobConsole(jobId, data.job);
+
+            // start a focused poll for this opened job so the modal stays live
+            activeJobFocusedId = jobId;
+            activeJobPollInterval = setInterval(async () => {
+                try {
+                    const sresp = await fetch(`/api/update-all-locations/status/${jobId}`);
+                    const sdata = await sresp.json();
+                    if (sdata.success) {
+                        renderJobConsole(jobId, sdata.job);
+                        if (!['queued','in_progress'].includes(sdata.job.status)) {
+                            clearInterval(activeJobPollInterval);
+                            activeJobPollInterval = null;
+                            activeJobFocusedId = null;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error polling opened job:', e);
+                    clearInterval(activeJobPollInterval);
+                    activeJobPollInterval = null;
+                    activeJobFocusedId = null;
+                }
+            }, 1000);
         } else {
             showToast('Failed to open job', 'error');
         }
@@ -860,6 +1073,36 @@ function escapeHtml(unsafe) {
          .replace(/>/g, "&gt;")
          .replace(/"/g, "&quot;")
          .replace(/'/g, "&#039;");
+}
+
+// Format a log line into HTML with a colored level tag when present.
+function formatLogHtml(unsafe, containerClass = 'job-log') {
+    if (!unsafe) return `<div class="${containerClass}"></div>`;
+    const raw = String(unsafe);
+    const m = raw.match(/^\s*\[([A-Za-z]+)\]\s*(.*)$/);
+    let level, rest;
+    if (m) {
+        level = m[1].toUpperCase();
+        rest = m[2] || '';
+    } else {
+        // infer level from keywords when no explicit prefix exists
+        rest = raw;
+        const low = raw.toLowerCase();
+        // Heuristic keyword matching: remove generic 'rssi' from success to avoid
+        // classifying heartbeat/waiting messages as success. Keep 'received' and
+        // 'localized' as success indicators.
+        if (/\b(success|ok|received|localized)\b/.test(low)) level = 'SUCCESS';
+        else if (/\b(fail|failed|error|unable|abandoned|no response|no rssi)\b/.test(low)) level = 'FAILURE';
+        else if (/\b(warn|warning|low)\b/.test(low)) level = 'WARNING';
+        else level = 'INFO';
+    }
+
+    let levelClass = 'log-info';
+    if (level === 'SUCCESS' || level === 'OK') levelClass = 'log-success';
+    else if (level === 'FAIL' || level === 'FAILURE' || level === 'ERROR') levelClass = 'log-failure';
+    else if (level === 'WARN' || level === 'WARNING') levelClass = 'log-warning';
+    // render: <div class="job-log"><span class="log-level log-info">[INFO]</span> escaped remainder</div>
+    return `<div class="${containerClass}"><span class="log-level ${levelClass}">[${escapeHtml(level)}]</span> ${escapeHtml(rest)}</div>`;
 }
 
 // Helper functions
@@ -922,10 +1165,16 @@ function formatTimestamp(timestamp) {
 
 function showToast(message, type = 'info', duration = 3000) {
     const toast = document.getElementById('toast');
-    toast.textContent = message;
+    const icons = { error: '✖', success: '✓', info: 'ℹ', warning: '⚠' };
+    const icon = icons[type] || '';
+    // use innerHTML so we can style the icon separately and keep message readable
+    toast.innerHTML = `<span style="margin-right:8px;font-weight:700">${icon}</span><span>${escapeHtml(String(message))}</span>`;
     toast.className = `toast toast-${type} show`;
-    
+    // log errors to console for easier debugging
+    if (type === 'error') console.error('UI Toast Error:', message);
+
     setTimeout(() => {
         toast.className = 'toast';
+        toast.innerHTML = '';
     }, duration);
 }
