@@ -455,7 +455,7 @@ def _run_update_all_job(job_id: str):
     import time
     from datetime import timedelta
 
-    per_device_timeout = 120  # seconds per device (allow more time for downlink + RSSI)
+    per_device_timeout = 60  # seconds per device (increased to allow downlink + RSSI)
     updated = []
     remaining = []
 
