@@ -162,7 +162,17 @@ class Trilateration:
                 - (anchor.x ** 2 + anchor.y ** 2)
                 + (gateway_anchor.x ** 2 + gateway_anchor.y ** 2)
             )
-            weights.append(measurement.confidence if use_weights else 1.0)
+            if use_weights:
+                # Give stronger RSSI (less negative dBm) more influence in the
+                # weighted least-squares fit while preserving confidence scaling.
+                # Example: -55 dBm -> larger multiplier, -90 dBm -> smaller.
+                signal_strength_weight = max(
+                    0.25,
+                    min(3.0, 1.0 + ((70.0 - abs(float(measurement.rssi))) / 20.0))
+                )
+                weights.append(measurement.confidence * signal_strength_weight)
+            else:
+                weights.append(1.0)
 
         matrix = np.array(rows, dtype=float)
         vector = np.array(targets, dtype=float)
