@@ -16,7 +16,7 @@ from database import (
     get_device,
     get_all_devices as db_get_all_devices,
     get_all_stationary_nodes as db_get_stationary_nodes,
-    get_latest_rssi_readings,
+    get_latest_rssi_with_timestamps,
     insert_device,
     update_device_location,
     update_device_battery,
@@ -44,6 +44,8 @@ except ImportError:
     logger.warning("Pillow not installed - image resolution detection disabled")
 
 logger = logging.getLogger(__name__)
+
+MAX_RSSI_TIMESTAMP_SKEW_SECONDS = 10
 
 # Facility dimensions (in meters)
 FACILITY_WIDTH = 30
@@ -360,11 +362,28 @@ class DeviceManager:
         """
         with self.lock:
             try:
-                rssi_by_node = {
-                    node_id: rssi
-                    for node_id, rssi in get_latest_rssi_readings(device_id).items()
-                    if rssi is not None
-                }
+                records = get_latest_rssi_with_timestamps(device_id)
+
+                # Build RSSI map and timestamp map from latest anchor records.
+                rssi_by_node = {}
+                ts_by_node = {}
+                for node_id, rec in records.items():
+                    rssi = rec.get('rssi') if isinstance(rec, dict) else None
+                    ts_raw = rec.get('timestamp') if isinstance(rec, dict) else None
+                    if rssi is None:
+                        continue
+                    rssi_by_node[node_id] = rssi
+
+                    ts_dt = None
+                    if ts_raw:
+                        try:
+                            ts_dt = datetime.fromisoformat(ts_raw)
+                        except Exception:
+                            try:
+                                ts_dt = datetime.strptime(ts_raw, '%Y-%m-%d %H:%M:%S')
+                            except Exception:
+                                ts_dt = None
+                    ts_by_node[node_id] = ts_dt
 
                 if not rssi_by_node:
                     logger.warning(f"No RSSI measurements found for {device_id}")
@@ -374,6 +393,21 @@ class DeviceManager:
                 missing = required_nodes - rssi_by_node.keys()
                 if missing:
                     logger.warning(f"Cannot localize {device_id}: missing RSSI from {sorted(missing)}")
+                    return None
+
+                # Guard against mixed-time measurements. Using stale and fresh
+                # anchors together can shift solutions in physically invalid ways.
+                anchor_times = [ts_by_node.get(n) for n in required_nodes]
+                if any(t is None for t in anchor_times):
+                    logger.warning(f"Cannot localize {device_id}: missing valid timestamps for one or more anchors")
+                    return None
+                min_ts = min(anchor_times)
+                max_ts = max(anchor_times)
+                skew_seconds = (max_ts - min_ts).total_seconds()
+                if skew_seconds > MAX_RSSI_TIMESTAMP_SKEW_SECONDS:
+                    logger.warning(
+                        f"Cannot localize {device_id}: anchor RSSI timestamps skewed by {skew_seconds:.1f}s (max {MAX_RSSI_TIMESTAMP_SKEW_SECONDS}s)"
+                    )
                     return None
 
                 result = run_localization(
