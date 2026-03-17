@@ -582,7 +582,28 @@ def _run_update_all_job(job_id: str):
                                 if did in pending:
                                     pending.remove(did)
                             else:
-                                dev.setdefault('logs', []).append('Localization returned no result')
+                                # Add a diagnostic reason to logs for easier tuning.
+                                diag = 'Localization returned no result'
+                                try:
+                                    latest_records = get_latest_rssi_with_timestamps(did)
+                                    ts_vals = []
+                                    for anchor in ['gateway', 'sn1', 'sn2', 'sn3']:
+                                        ts = (latest_records.get(anchor) or {}).get('timestamp')
+                                        if not ts:
+                                            continue
+                                        try:
+                                            ts_vals.append(datetime.fromisoformat(ts))
+                                        except Exception:
+                                            try:
+                                                ts_vals.append(datetime.strptime(ts, '%Y-%m-%d %H:%M:%S'))
+                                            except Exception:
+                                                pass
+                                    if len(ts_vals) >= 2:
+                                        skew = (max(ts_vals) - min(ts_vals)).total_seconds()
+                                        diag = f'Localization returned no result (anchor timestamp skew {skew:.1f}s)'
+                                except Exception:
+                                    pass
+                                dev.setdefault('logs', []).append(diag)
                                 dev['status'] = 'localization_failed'
                         except Exception:
                             logger.exception(f"Localization failed for {did}")

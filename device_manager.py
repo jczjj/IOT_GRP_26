@@ -45,7 +45,9 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-MAX_RSSI_TIMESTAMP_SKEW_SECONDS = 10
+# Anchors can report with moderate delay; keep guard against very stale mixes
+# but allow realistic stagger across gateway/sn nodes.
+MAX_RSSI_TIMESTAMP_SKEW_SECONDS = 35
 
 # Facility dimensions (in meters)
 FACILITY_WIDTH = 30
