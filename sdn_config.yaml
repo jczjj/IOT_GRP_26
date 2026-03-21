@@ -1,0 +1,12 @@
+credentials:
+  pc_ssid: 
+  pc_pass: 
+paths:
+  receive_dir: "/home/sdn_service/poc/file_transfer/receive"
+  archive_dir: "/home/sdn_service/poc/file_transfer/archive"
+  payload_file: "gatita.png"
+  lock_file: "payload.lock"
+  log_file: "/home/sdn_service/poc/python_script/production.log"
+  script_path: "/home/sdn_service/poc/python_script/pp_v12.4.sh"
+network:
+  recovery_enabled: true
