@@ -76,6 +76,26 @@
             </div>
         </div>
 
+        <!-- Live Image Modal -->
+        <div id="liveImageModal" class="modal">
+            <div class="modal-content live-image-modal-content">
+                <span id="liveImageClose" class="live-image-close">&times;</span>
+                <h2 id="liveImageTitle">Incoming Image</h2>
+                <div id="liveImageWaiting" class="live-image-waiting">
+                    <div class="spinner"></div>
+                    <p>Waiting for image from Wi-Fi relay...</p>
+                </div>
+                <div id="liveImageContent" style="display:none;">
+                    <img id="liveImageElement" src="" alt="Live incoming image">
+                    <div class="image-metadata">
+                        <p><strong>Captured:</strong> <span id="liveImageTimestamp"></span></p>
+                        <p><strong>Size:</strong> <span id="liveImageSize"></span></p>
+                        <p><strong>Resolution:</strong> <span id="liveImageResolution"></span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Notification Toast -->
         <div id="toast" class="toast"></div>
         

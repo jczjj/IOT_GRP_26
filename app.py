@@ -10,12 +10,14 @@ import os
 import logging
 import math  # Added for distance calculation
 import threading
+import time
+import shutil
 import uuid
 from anchor_layout import GATEWAY_NODE_ID
 from localization import get_default_anchors
 from ttn_integration import get_ttn_client, TTNClient
 from device_manager import get_device_manager, DeviceManager
-from database import init_database, get_connection, get_device_last_updated, get_device_last_uplink, get_latest_rssi_with_timestamps
+from database import init_database, get_connection, insert_device_image, get_device_last_updated, get_device_last_uplink, get_latest_rssi_with_timestamps
 
 
 # Configure logging
@@ -32,6 +34,20 @@ app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
 UPLOAD_FOLDER = 'static/images/captured'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+WIFI_HOPPING_ARCHIVE_DIR = os.environ.get(
+    'WIFI_HOPPING_ARCHIVE_DIR',
+    '/home/sdn_service/poc/file_transfer/archive'
+)
+IMAGE_WATCH_POLL_SECONDS = float(os.environ.get('IMAGE_WATCH_POLL_SECONDS', '2'))
+
+# Shared state for image-bridge watcher and request polling.
+IMAGE_BRIDGE_STATE = {
+    'lock': threading.RLock(),
+    'known_files': set(),
+    'pending_requests': [],
+    'last_received_by_device': {}
+}
 
 # Initialize database
 logger.info("Initializing database...")
@@ -62,6 +78,113 @@ if ttn_client.is_connected():
     logger.info("✓ Application Server ready - TTN connected")
 else:
     logger.warning("⚠ Application Server started but TTN connection pending")
+
+
+def _normalize_device_id(device_id: str) -> str:
+    """Normalize IDs so route params like ed1 map to TTN/database style ed-1."""
+    if not device_id:
+        return device_id
+    lowered = str(device_id).strip().lower()
+    if lowered.startswith('ed') and not lowered.startswith('ed-'):
+        suffix = lowered[2:]
+        if suffix.isdigit():
+            return f'ed-{suffix}'
+    return lowered
+
+
+def _register_pending_image_request(device_id: str) -> dict:
+    """Track image requests so arriving files can be attributed to the right device."""
+    req = {
+        'request_id': str(uuid.uuid4()),
+        'device_id': device_id,
+        'requested_at': datetime.now().isoformat()
+    }
+    with IMAGE_BRIDGE_STATE['lock']:
+        IMAGE_BRIDGE_STATE['pending_requests'].append(req)
+    return req
+
+
+def _seed_archive_files_once():
+    """Mark current archive files as known so only newly arrived files are processed."""
+    if not os.path.isdir(WIFI_HOPPING_ARCHIVE_DIR):
+        return
+    with IMAGE_BRIDGE_STATE['lock']:
+        for name in os.listdir(WIFI_HOPPING_ARCHIVE_DIR):
+            full = os.path.join(WIFI_HOPPING_ARCHIVE_DIR, name)
+            if os.path.isfile(full):
+                IMAGE_BRIDGE_STATE['known_files'].add(name)
+
+
+def _ingest_archive_image(filepath: str):
+    """Copy newly arrived archive image into dashboard static folder and DB metadata."""
+    _, ext = os.path.splitext(filepath)
+    ext = ext.lower()
+    if ext not in {'.jpg', '.jpeg', '.png', '.webp'}:
+        return
+
+    with IMAGE_BRIDGE_STATE['lock']:
+        pending = IMAGE_BRIDGE_STATE['pending_requests']
+        req = pending.pop(0) if pending else None
+
+    if not req:
+        logger.info(f"Image arrived but no pending request: {filepath}")
+        return
+
+    device_id = req['device_id']
+    request_id = req['request_id']
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    latest_filename = f"{device_id}_latest{ext}"
+    ts_filename = f"{device_id}_{ts}{ext}"
+
+    latest_path = os.path.join(app.config['UPLOAD_FOLDER'], latest_filename)
+    ts_path = os.path.join(app.config['UPLOAD_FOLDER'], ts_filename)
+
+    try:
+        shutil.copy2(filepath, ts_path)
+        shutil.copy2(filepath, latest_path)
+
+        size_bytes = os.path.getsize(latest_path)
+        insert_device_image(device_id, latest_path, size_bytes, resolution='Unknown')
+
+        with IMAGE_BRIDGE_STATE['lock']:
+            IMAGE_BRIDGE_STATE['last_received_by_device'][device_id] = {
+                'request_id': request_id,
+                'received_at': datetime.now().isoformat(),
+                'image_url': f"/static/images/captured/{latest_filename}",
+                'source_file': os.path.basename(filepath)
+            }
+
+        logger.info(
+            f"✓ Bridged Wi-Fi image to dashboard for {device_id}: source={os.path.basename(filepath)}"
+        )
+    except Exception as exc:
+        logger.error(f"Failed to ingest archive image {filepath}: {exc}", exc_info=True)
+
+
+def _image_bridge_watcher():
+    """Background watcher that detects newly arrived files from Wi-Fi hopping server."""
+    _seed_archive_files_once()
+    logger.info(f"Image bridge watcher started on {WIFI_HOPPING_ARCHIVE_DIR}")
+    while True:
+        try:
+            if os.path.isdir(WIFI_HOPPING_ARCHIVE_DIR):
+                names = sorted(os.listdir(WIFI_HOPPING_ARCHIVE_DIR))
+                for name in names:
+                    full = os.path.join(WIFI_HOPPING_ARCHIVE_DIR, name)
+                    if not os.path.isfile(full):
+                        continue
+                    with IMAGE_BRIDGE_STATE['lock']:
+                        if name in IMAGE_BRIDGE_STATE['known_files']:
+                            continue
+                        IMAGE_BRIDGE_STATE['known_files'].add(name)
+                    _ingest_archive_image(full)
+            time.sleep(IMAGE_WATCH_POLL_SECONDS)
+        except Exception as exc:
+            logger.error(f"Image bridge watcher error: {exc}", exc_info=True)
+            time.sleep(IMAGE_WATCH_POLL_SECONDS)
+
+
+threading.Thread(target=_image_bridge_watcher, daemon=True).start()
 
 
 # Best Path algorithm constants
@@ -169,8 +292,14 @@ def request_image(device_id):
       Byte 2: 0x00 for the first device (hotspot off / target),
               0x01 for all subsequent relay devices (hotspot on)
     """
+    normalized_device_id = _normalize_device_id(device_id)
+    effective_device_id = normalized_device_id
+
     # Check if device exists
-    device = device_manager.get_device_by_id(device_id)
+    device = device_manager.get_device_by_id(effective_device_id)
+    if not device and normalized_device_id != device_id:
+        effective_device_id = device_id
+        device = device_manager.get_device_by_id(effective_device_id)
     if not device:
         return jsonify({
             'success': False,
@@ -179,8 +308,8 @@ def request_image(device_id):
 
     # Run find_best_path using the devices table in the database
     conn = get_connection()
-    path = find_best_path(conn, device_id)
-    logger.info(f"Best path for {device_id}: {path}")
+    path = find_best_path(conn, effective_device_id)
+    logger.info(f"Best path for {effective_device_id}: {path}")
 
     if not path:
         return jsonify({
@@ -192,7 +321,7 @@ def request_image(device_id):
     results = []
     total = len(path)
     for i, target_dev in enumerate(path):
-        hotspot_byte = 0x01 if i == 0 else 0x00
+        hotspot_byte = 0x00 if i == 0 else 0x01
         hop_count_byte = total - i
         payload = bytes([0x02, hop_count_byte, hotspot_byte])
         success = ttn_client.send_downlink(target_dev, payload, fport=2)
@@ -206,33 +335,81 @@ def request_image(device_id):
         )
 
     all_ok = all(r['success'] for r in results)
+    req = _register_pending_image_request(effective_device_id) if all_ok else None
+
     return jsonify({
         'success': all_ok,
-        'message': f'Image request sent along path for device {device_id}',
-        'device_id': device_id,
+        'message': f'Image request sent along path for device {effective_device_id}',
+        'device_id': effective_device_id,
         'path': path,
         'downlinks': results,
-        'estimated_time': f'{total * 3} seconds'
+        'estimated_time': f'{total * 3} seconds',
+        'request_id': req['request_id'] if req else None,
+        'requested_at': req['requested_at'] if req else None
     }), 200 if all_ok else 500
 
 
 @app.route('/api/device/<device_id>/image')
 def get_image(device_id):
     """Get the latest captured image from a device"""
-    image_data = device_manager.get_device_image(device_id)
+    normalized_device_id = _normalize_device_id(device_id)
+    effective_device_id = normalized_device_id
+    image_data = device_manager.get_device_image(effective_device_id)
+    if not image_data and normalized_device_id != device_id:
+        effective_device_id = device_id
+        image_data = device_manager.get_device_image(effective_device_id)
     
     if image_data:
         return jsonify({
             'success': True,
             'image_url': image_data['url'],
             'timestamp': image_data['timestamp'],
-            'device_id': device_id
+            'size': image_data.get('size'),
+            'resolution': image_data.get('resolution'),
+            'device_id': effective_device_id
         })
     
     return jsonify({
         'success': False,
         'error': 'No image available for this device'
     }), 404
+
+
+@app.route('/api/request-image-status/<device_id>')
+def request_image_status(device_id):
+    """Poll readiness for a just-requested image and return URL immediately when available."""
+    normalized_device_id = _normalize_device_id(device_id)
+    effective_device_id = normalized_device_id
+    request_id = request.args.get('request_id')
+
+    with IMAGE_BRIDGE_STATE['lock']:
+        last = IMAGE_BRIDGE_STATE['last_received_by_device'].get(effective_device_id)
+        if not last and normalized_device_id != device_id:
+            effective_device_id = device_id
+            last = IMAGE_BRIDGE_STATE['last_received_by_device'].get(effective_device_id)
+
+    if not last:
+        return jsonify({'success': True, 'ready': False})
+
+    if request_id and last.get('request_id') != request_id:
+        return jsonify({'success': True, 'ready': False})
+
+    image_data = device_manager.get_device_image(effective_device_id)
+    if not image_data:
+        return jsonify({'success': True, 'ready': False})
+
+    return jsonify({
+        'success': True,
+        'ready': True,
+        'device_id': effective_device_id,
+        'request_id': last.get('request_id'),
+        'received_at': last.get('received_at'),
+        'source_file': last.get('source_file'),
+        'image_url': image_data['url'],
+        'timestamp': image_data.get('timestamp'),
+        'size': image_data.get('size'),
+        'resolution': image_data.get('resolution')
+    })
 
 
 @app.route('/view-image/<device_id>')

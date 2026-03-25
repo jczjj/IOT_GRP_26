@@ -274,8 +274,10 @@ class DeviceManager:
         """
         img_data = get_latest_device_image(device_id)
         if img_data:
+            image_path = img_data.get('image_path') or ''
+            filename = os.path.basename(image_path) if image_path else f'{device_id}_latest.jpg'
             return {
-                'url': f'/static/images/captured/{device_id}_latest.jpg',
+                'url': f'/static/images/captured/{filename}',
                 'timestamp': img_data['timestamp'],
                 'size': f"{img_data['size_bytes'] / 1024:.1f} KB",
                 'resolution': img_data.get('resolution', 'Unknown')

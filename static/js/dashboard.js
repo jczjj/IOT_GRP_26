@@ -20,6 +20,8 @@ let currentDeviceJobsForModal = null;
 let currentDeviceJobDetailId = null;
 // Poll interval for the currently-open device job detail
 let deviceJobDetailPollInterval = null;
+let liveImagePollInterval = null;
+let activeImageRequest = null;
 
 function getValidRssiEntries(rssiReadings) {
     return Object.entries(rssiReadings || {}).filter(([, rssi]) => Number.isFinite(rssi));
@@ -171,12 +173,25 @@ function setupEventListeners() {
     document.querySelector('.close').addEventListener('click', () => {
         closeModal();
     });
+
+    // Live image modal close button
+    const liveImageClose = document.getElementById('liveImageClose');
+    if (liveImageClose) {
+        liveImageClose.addEventListener('click', () => {
+            closeLiveImageModal();
+        });
+    }
     
     // Close modal when clicking outside
     window.addEventListener('click', (event) => {
         const modal = document.getElementById('deviceModal');
         if (event.target === modal) {
             closeModal();
+        }
+
+        const liveImageModal = document.getElementById('liveImageModal');
+        if (event.target === liveImageModal) {
+            closeLiveImageModal();
         }
     });
     
@@ -508,6 +523,100 @@ function closeModal() {
 }
 
 
+function openLiveImageModal(deviceId) {
+    const modal = document.getElementById('liveImageModal');
+    const title = document.getElementById('liveImageTitle');
+    const waiting = document.getElementById('liveImageWaiting');
+    const content = document.getElementById('liveImageContent');
+
+    title.textContent = `Incoming Image - ${deviceId}`;
+    waiting.style.display = 'block';
+    content.style.display = 'none';
+    modal.style.display = 'block';
+}
+
+
+function closeLiveImageModal() {
+    const modal = document.getElementById('liveImageModal');
+    modal.style.display = 'none';
+    if (liveImagePollInterval) {
+        clearInterval(liveImagePollInterval);
+        liveImagePollInterval = null;
+    }
+    activeImageRequest = null;
+}
+
+
+function renderLiveImage(data) {
+    const waiting = document.getElementById('liveImageWaiting');
+    const content = document.getElementById('liveImageContent');
+    const img = document.getElementById('liveImageElement');
+    const ts = document.getElementById('liveImageTimestamp');
+    const size = document.getElementById('liveImageSize');
+    const res = document.getElementById('liveImageResolution');
+
+    waiting.style.display = 'none';
+    content.style.display = 'block';
+
+    // Cache-bust to show the newly written latest file immediately.
+    img.src = `${data.image_url}?t=${Date.now()}`;
+    ts.textContent = data.timestamp ? new Date(data.timestamp).toLocaleString() : 'N/A';
+    size.textContent = data.size || 'N/A';
+    res.textContent = data.resolution || 'N/A';
+}
+
+
+function startLiveImagePolling(deviceId, requestId) {
+    if (liveImagePollInterval) {
+        clearInterval(liveImagePollInterval);
+        liveImagePollInterval = null;
+    }
+
+    const encodedId = encodeURIComponent(deviceId);
+    const encodedReq = encodeURIComponent(requestId || '');
+    let attempts = 0;
+    const maxAttempts = 120; // 120 * 2s = 4 minutes
+
+    liveImagePollInterval = setInterval(async () => {
+        attempts += 1;
+        try {
+            const resp = await fetch(`/api/request-image-status/${encodedId}?request_id=${encodedReq}`);
+            const data = await resp.json();
+
+            if (data.success && data.ready) {
+                clearInterval(liveImagePollInterval);
+                liveImagePollInterval = null;
+                renderLiveImage(data);
+
+                // Keep UI state aligned with incoming image.
+                const viewImageBtn = document.getElementById('viewImageBtn');
+                if (viewImageBtn) {
+                    viewImageBtn.style.display = 'inline-block';
+                }
+                if (selectedDevice && selectedDevice.id === deviceId) {
+                    selectedDevice.has_image = true;
+                }
+
+                showToast('Image received and displayed', 'success', 4000);
+                loadData();
+                return;
+            }
+
+            if (attempts >= maxAttempts) {
+                clearInterval(liveImagePollInterval);
+                liveImagePollInterval = null;
+                showToast('Timed out waiting for image', 'warning', 5000);
+            }
+        } catch (err) {
+            console.error('Error polling image status:', err);
+            clearInterval(liveImagePollInterval);
+            liveImagePollInterval = null;
+            showToast('Error waiting for image', 'error');
+        }
+    }, 2000);
+}
+
+
 function startDeviceModalPolling(deviceId) {
     // clear any existing
     stopDeviceModalPolling();
@@ -822,12 +931,13 @@ async function requestImage(deviceId) {
         
         if (data.success) {
             showToast(`Image request sent! Relay path: ${data.path.join(' → ')}. ETA: ${data.estimated_time}`, 'success', 5000);
-            
-            // Update view image button after estimated time
-            setTimeout(() => {
-                loadData();
-                closeModal();
-            }, 5000);
+
+            activeImageRequest = {
+                deviceId,
+                requestId: data.request_id || null,
+            };
+            openLiveImageModal(deviceId);
+            startLiveImagePolling(deviceId, data.request_id || '');
         } else {
             showToast('Failed to request image: ' + data.error, 'error');
         }
