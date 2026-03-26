@@ -74,7 +74,8 @@ void switchToLoRaWAN() {
   useLoRaWAN = true;
   retryCount = 0;
 
-  // LMIC runtime is already initialized in setup(); re-initializing here can corrupt state.
+  // Reinitialize LMIC runtime after LMIC_shutdown() before resetting MAC state.
+  os_init();
   LMIC_reset();
 
   LMIC_setClockError(MAX_CLOCK_ERROR * 1 / 100);
