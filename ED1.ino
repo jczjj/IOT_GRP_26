@@ -42,9 +42,15 @@ const lmic_pinmap lmic_pins = {
 
 // ================= LORAWAN SEND =================
 void do_send(osjob_t* j) {
-  if (!(LMIC.opmode & OP_TXRXPEND)) {
-    LMIC_setTxData2(1, mydata, sizeof(mydata), 0);
+  if (LMIC.opmode & OP_TXRXPEND) {
+    // If MAC is busy (join/TX/RX), retry scheduling instead of dropping heartbeat.
+    os_setTimedCallback(&sendjob,
+      os_getTime() + sec2osticks(5),
+      do_send);
+    return;
   }
+
+  LMIC_setTxData2(1, mydata, sizeof(mydata), 0);
 }
 
 // ================= SWITCH TO P2P =================
@@ -86,6 +92,14 @@ void switchToLoRaWAN() {
 
 // ================= LORAWAN EVENTS =================
 void onEvent (ev_t ev) {
+
+  if (ev == EV_JOIN_FAILED || ev == EV_REJOIN_FAILED) {
+    // Retry after a delay so the heartbeat loop self-recovers if join fails.
+    os_setTimedCallback(&sendjob,
+      os_getTime() + sec2osticks(TX_INTERVAL),
+      do_send);
+    return;
+  }
 
   if (ev == EV_TXCOMPLETE) {
 
