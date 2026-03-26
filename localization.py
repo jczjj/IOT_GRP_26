@@ -116,6 +116,57 @@ class Trilateration:
 
     MIN_MEASUREMENTS = 3
     GATEWAY_DISTANCE_TOLERANCE_METERS = 0.75
+    MAX_RESIDUAL_ERROR = 2.0  # Meters - flag unreliable solutions
+    MIN_CONFIDENCE_THRESHOLD = 0.5  # Minimum acceptable confidence
+
+    @staticmethod
+    def validate_measurements(
+        measurements: List[RSSIMeasurement],
+        anchors: Dict[str, AnchorPoint],
+    ) -> tuple[bool, str]:
+        """
+        Validate that RSSI measurements are geometrically feasible.
+        
+        Returns: (is_valid, diagnostic_message)
+        """
+        if len(measurements) < 3:
+            return False, f"Insufficient measurements: {len(measurements)} < 3"
+        
+        # Check if any two anchors both have very small measured distances that are physically impossible
+        measurement_map = {m.node_id: m for m in measurements}
+        strong_signals = [(node_id, m.distance, m.rssi) 
+                          for node_id, m in measurement_map.items() 
+                          if m.distance < 1.0]  # Distance < 1m is "strong"
+        
+        if len(strong_signals) >= 2:
+            # Check distance between anchors with strong signals
+            for i in range(len(strong_signals)):
+                for j in range(i + 1, len(strong_signals)):
+                    node_i, dist_i, rssi_i = strong_signals[i]
+                    node_j, dist_j, rssi_j = strong_signals[j]
+                    
+                    anchor_i = anchors[node_i]
+                    anchor_j = anchors[node_j]
+                    
+                    # Calculate distance between anchors
+                    anchor_distance = math.sqrt(
+                        ((anchor_i.x - anchor_j.x) ** 2) +
+                        ((anchor_i.y - anchor_j.y) ** 2) +
+                        ((anchor_i.z - anchor_j.z) ** 2)
+                    )
+                    
+                    # For two circles to intersect, sum of radii must be >= anchor distance
+                    sum_of_radii = dist_i + dist_j
+                    
+                    if sum_of_radii < anchor_distance * 0.5:  # Very generous tolerance
+                        return False, (
+                            f"Impossible measurements: {node_i}({dist_i:.2f}m) and {node_j}({dist_j:.2f}m) "
+                            f"claim device is <1m from both, but anchors are {anchor_distance:.2f}m apart. "
+                            f"Device cannot be {dist_i:.2f}m from {node_i} ({rssi_i} dBm) "
+                            f"AND {dist_j:.2f}m from {node_j} ({rssi_j} dBm)."
+                        )
+        
+        return True, "Measurements are geometrically feasible"
 
     @staticmethod
     def calculate_position(
@@ -133,6 +184,13 @@ class Trilateration:
         if len(measurement_map) < Trilateration.MIN_MEASUREMENTS:
             logger.warning('Insufficient measurements: %s', len(measurement_map))
             return None
+
+        # Validate measurements for geometric feasibility
+        is_valid, diagnostic_msg = Trilateration.validate_measurements(measurements, anchors)
+        if not is_valid:
+            logger.warning('Measurement validation failed: %s', diagnostic_msg)
+            # Don't reject immediately, but flag it in the result
+            # This helps capture the issue for debugging
 
         gateway_measurement = measurement_map.get(GATEWAY_NODE_ID)
         if gateway_measurement is None:
@@ -227,13 +285,31 @@ class Trilateration:
         confidence = max(0.05, min(1.0, (measurement_confidence * 0.7) + (geometry_score * 0.3)))
         accuracy = max(0.05, min(1.0, confidence * geometry_score))
 
+        # Check if solution quality is acceptable
+        is_reliable = residual_error < Trilateration.MAX_RESIDUAL_ERROR and confidence > Trilateration.MIN_CONFIDENCE_THRESHOLD
+        if not is_reliable:
+            if residual_error >= Trilateration.MAX_RESIDUAL_ERROR:
+                logger.warning(
+                    'High residual error (%.2f m): Measurements may be inconsistent or RSSI data may be stale. '
+                    'Verify all RSSI readings are from the same measurement cycle.',
+                    residual_error
+                )
+            if confidence <= Trilateration.MIN_CONFIDENCE_THRESHOLD:
+                logger.warning(
+                    'Low confidence (%.2f): Solution quality is poor. '
+                    'Consider re-measuring or checking RSSI data consistency.',
+                    confidence
+                )
+
         return {
             'position': {'x': x, 'y': y, 'z': z},
             'residual_error': residual_error,
             'confidence': confidence,
             'accuracy': accuracy,
+            'is_reliable': is_reliable,
             'num_measurements': len(measurement_map),
             'predicted_distances': predicted_distances,
+            'measurement_validation': diagnostic_msg if not is_valid else 'OK',
             'timestamp': datetime.now().isoformat(),
         }
 

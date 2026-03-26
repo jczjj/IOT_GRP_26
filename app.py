@@ -504,6 +504,8 @@ def localize(device_id):
             'residual_error': float,         # Fitting error in meters
             'confidence': float,             # 0.0-1.0
             'accuracy': float,               # Estimated accuracy
+            'is_reliable': bool,             # Whether solution meets quality thresholds
+            'measurement_validation': str,   # Diagnostic message about RSSI measurements
             'num_measurements': int,
             'timestamp': str,
             'message': str
@@ -527,6 +529,9 @@ def localize(device_id):
             (pos['z'] - gateway.z)**2
         )
         
+        is_reliable = result.get('is_reliable', True)
+        reliability_status = "RELIABLE" if is_reliable else "⚠️ UNRELIABLE"
+        
         return jsonify({
             'success': True,
             'position': pos,
@@ -534,9 +539,11 @@ def localize(device_id):
             'residual_error': result['residual_error'],
             'confidence': result['confidence'],
             'accuracy': result['accuracy'],
+            'is_reliable': is_reliable,
+            'measurement_validation': result.get('measurement_validation', 'OK'),
             'num_measurements': result['num_measurements'],
             'timestamp': result['timestamp'],
-            'message': f"Device {device_id} localized successfully. Distance from gateway: {round(distance_from_gateway, 2)}m"
+            'message': f"Device {device_id} localized ({reliability_status}). Distance from gateway: {round(distance_from_gateway, 2)}m. Residual error: {round(result['residual_error'], 2)}m"
         })
     else:
         return jsonify({
