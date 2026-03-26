@@ -14,6 +14,9 @@ class Topology3D {
         this.nodeMeshes = new Map();
         this.signalLines = [];
         
+        // Facility center offset: anchors are at (0,0,0) but facility is centered at (15, 0, 20)
+        this.facilityCenter = { x: 15, y: 0, z: 20 };
+        
         this.init();
     }
 
@@ -135,7 +138,12 @@ class Topology3D {
             roughness: 0.3
         });
         const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(node.location.x, node.location.z, node.location.y);
+        // Apply facility center offset to anchor positions
+        mesh.position.set(
+            node.location.x + this.facilityCenter.x, 
+            node.location.z + this.facilityCenter.y, 
+            node.location.y + this.facilityCenter.z
+        );
 
         // Add pulsing animation
         mesh.userData = { 
@@ -165,7 +173,12 @@ class Topology3D {
             roughness: 0.5
         });
         const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(device.location.x, device.location.z, device.location.y);
+        // Apply facility center offset to device position (same as anchors)
+        mesh.position.set(
+            device.location.x + this.facilityCenter.x, 
+            device.location.z + this.facilityCenter.y, 
+            device.location.y + this.facilityCenter.z
+        );
         mesh.rotation.x = Math.PI; // Point upward
 
         mesh.userData = {
@@ -195,7 +208,11 @@ class Topology3D {
             const color = new THREE.Color().setHSL(0.6 - (strength * 0.3), 1, strength * 0.5);
 
             const points = [
-                new THREE.Vector3(device.location.x, device.location.z, device.location.y),
+                new THREE.Vector3(
+                    device.location.x + this.facilityCenter.x, 
+                    device.location.z + this.facilityCenter.y, 
+                    device.location.y + this.facilityCenter.z
+                ),
                 nodeMesh.position.clone()
             ];
 
