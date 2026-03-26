@@ -25,8 +25,9 @@ class Topology3D {
         // Create camera
         const aspect = this.container.clientWidth / this.container.clientHeight;
         this.camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
-        this.camera.position.set(25, 25, 35);
-        this.camera.lookAt(15, 0, 20);
+        // Position camera to view anchors centered at origin (0, 0, 0)
+        this.camera.position.set(10, 15, 15);
+        this.camera.lookAt(0, 0, 0);
 
         // Create renderer
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -77,7 +78,9 @@ class Topology3D {
     }
 
     createFacility() {
-        // Floor (30m x 40m)
+        // Floor (30m x 40m) - centered at anchor layout origin
+        // Anchors use coordinate system (x, y_physical, z_physical) → Three.js (x, z_physical, y_physical)
+        // So floor dimensions should respect this transformation
         const floorGeometry = new THREE.PlaneGeometry(30, 40);
         const floorMaterial = new THREE.MeshStandardMaterial({
             color: 0x2d2d44,
@@ -87,30 +90,35 @@ class Topology3D {
         });
         const floor = new THREE.Mesh(floorGeometry, floorMaterial);
         floor.rotation.x = -Math.PI / 2;
-        floor.position.set(15, 0, 20);
+        // Position floor at center of anchor area (0, 0 in anchor_layout → 0, 0 in Three.js)
+        // Floor extends ±15 in x and ±20 in z (which is y in anchor_layout)
+        floor.position.set(0, 0, 0);
         this.scene.add(floor);
 
-        // Walls (wireframe)
+        // Walls (wireframe) - adjusted to match floor at origin
         const wallMaterial = new THREE.LineBasicMaterial({ color: 0x444466 });
         
-        // Create wall outline
+        // Create wall outline centered at origin (floor is 30m x 40m)
+        // Anchors positioned relative to this: Gateway (0,0), SN1 (5,0), SN2 (-2.5, 4.33), SN3 (-2.5, -4.33)
         const points = [
-            new THREE.Vector3(0, 0, 0),
-            new THREE.Vector3(30, 0, 0),
-            new THREE.Vector3(30, 0, 40),
-            new THREE.Vector3(0, 0, 40),
-            new THREE.Vector3(0, 0, 0),
-            new THREE.Vector3(0, 5, 0),
-            new THREE.Vector3(30, 5, 0),
-            new THREE.Vector3(30, 0, 0),
-            new THREE.Vector3(30, 5, 0),
-            new THREE.Vector3(30, 5, 40),
-            new THREE.Vector3(30, 0, 40),
-            new THREE.Vector3(30, 5, 40),
-            new THREE.Vector3(0, 5, 40),
-            new THREE.Vector3(0, 0, 40),
-            new THREE.Vector3(0, 5, 40),
-            new THREE.Vector3(0, 5, 0)
+            // Floor outline at y=0
+            new THREE.Vector3(-15, 0, -20),
+            new THREE.Vector3(15, 0, -20),
+            new THREE.Vector3(15, 0, 20),
+            new THREE.Vector3(-15, 0, 20),
+            new THREE.Vector3(-15, 0, -20),
+            // Vertical wall edges
+            new THREE.Vector3(-15, 5, -20),
+            new THREE.Vector3(15, 5, -20),
+            new THREE.Vector3(15, 0, -20),
+            new THREE.Vector3(15, 5, -20),
+            new THREE.Vector3(15, 5, 20),
+            new THREE.Vector3(15, 0, 20),
+            new THREE.Vector3(15, 5, 20),
+            new THREE.Vector3(-15, 5, 20),
+            new THREE.Vector3(-15, 0, 20),
+            new THREE.Vector3(-15, 5, 20),
+            new THREE.Vector3(-15, 5, -20)
         ];
         
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
@@ -292,8 +300,9 @@ class Topology3D {
     }
 
     resetView() {
-        this.camera.position.set(25, 25, 35);
-        this.camera.lookAt(15, 0, 20);
+        // Reset camera to view anchors at origin
+        this.camera.position.set(10, 15, 15);
+        this.camera.lookAt(0, 0, 0);
         this.controls.reset();
     }
 }
