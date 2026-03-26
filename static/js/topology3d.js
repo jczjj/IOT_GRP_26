@@ -12,6 +12,7 @@ class Topology3D {
         this.controls = null;
         this.deviceMeshes = new Map();
         this.nodeMeshes = new Map();
+        this.deviceLabels = new Map();  // Track device labels for cleanup
         this.signalLines = [];
         
         // Facility center offset: shift both cuboid and anchors together
@@ -48,9 +49,10 @@ class Topology3D {
         // Add facility floor and walls
         this.createFacility();
 
-        // Add grid helper
+        // Add grid helper - positioned at center of cuboid to match its bounds
         const gridHelper = new THREE.GridHelper(40, 40, 0x444444, 0x222222);
-        gridHelper.position.y = 0;
+        // Position grid center at the cuboid center: (15+45)/2=30, (20+60)/2=40 (after offset)
+        gridHelper.position.set(15 + this.facilityCenter.x, 0, 20 + this.facilityCenter.z);
         this.scene.add(gridHelper);
 
         // Add axes helper
@@ -190,8 +192,9 @@ class Topology3D {
         this.scene.add(mesh);
         this.deviceMeshes.set(device.id, mesh);
 
-        // Add label
-        this.addLabel(device.patient_name, mesh.position, 1.2, 0xff6b6b);
+        // Add label and store reference for cleanup
+        const label = this.createLabel(device.patient_name, mesh.position, 1.2, 0xff6b6b);
+        this.deviceLabels.set(device.id, label);
 
         // Draw RSSI signal lines to stationary nodes
         this.drawRSSILines(device);
@@ -230,6 +233,11 @@ class Topology3D {
     }
 
     addLabel(text, position, offset, color) {
+        const label = this.createLabel(text, position, offset, color);
+        return label;
+    }
+
+    createLabel(text, position, offset, color) {
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d');
         canvas.width = 256;
@@ -251,6 +259,7 @@ class Topology3D {
         sprite.scale.set(4, 1, 1);
         
         this.scene.add(sprite);
+        return sprite;
     }
 
     addRangeCircle(position, radius, color) {
@@ -273,6 +282,12 @@ class Topology3D {
             this.scene.remove(mesh);
         });
         this.deviceMeshes.clear();
+
+        // Remove all device labels
+        this.deviceLabels.forEach(label => {
+            this.scene.remove(label);
+        });
+        this.deviceLabels.clear();
 
         // Remove signal lines
         this.signalLines.forEach(line => {
