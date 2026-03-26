@@ -9,7 +9,6 @@
 #define MY_DEVICE_ID 0x01   // <-- change this per device (0x01, 0x02, 0x03...)
 
 bool useLoRaWAN = true;
-bool waitingForAck = false;
 
 // For P2P repeated sending
 unsigned long lastSendTime = 0;
@@ -54,12 +53,16 @@ void switchToLoRa() {
   LMIC_shutdown();
 
   useLoRaWAN = false;
-  waitingForAck = true;
+  retryCount = 0;
+  lastSendTime = 0;
 
   LoRa.setPins(SS, RST, DIO0);
 
   if (!LoRa.begin(915E6)) {
-    while (1);
+    Serial.println("LoRa P2P init failed");
+    while (1) {
+      delay(1000);
+    }
   }
 }
 
@@ -69,9 +72,9 @@ void switchToLoRaWAN() {
   LoRa.end();
 
   useLoRaWAN = true;
-  waitingForAck = false;
+  retryCount = 0;
 
-  os_init();
+  // LMIC runtime is already initialized in setup(); re-initializing here can corrupt state.
   LMIC_reset();
 
   LMIC_setClockError(MAX_CLOCK_ERROR * 1 / 100);
@@ -132,15 +135,14 @@ void loop() {
   }
   else {
 
-    // Send repeatedly every 2 seconds
-    if (millis() - lastSendTime > sendInterval && retryCount < maxRetries) {
+    // Send attempts every sendInterval until maxRetries is reached.
+    if ((millis() - lastSendTime >= sendInterval) && retryCount < maxRetries) {
 
       LoRa.beginPacket();
       LoRa.write(0x1A);
       LoRa.write(0x2B);
       LoRa.write(MY_DEVICE_ID);  // byte[0] = device ID
       LoRa.endPacket();
-      delay(2000);
 
       lastSendTime = millis();
       retryCount++;
@@ -150,12 +152,17 @@ void loop() {
     int packetSize = LoRa.parsePacket();
     if (packetSize) {
 
-      String received = "";
+      char ackBuf[3];
+      uint8_t ackLen = 0;
+
+      while (LoRa.available() && ackLen < sizeof(ackBuf)) {
+        ackBuf[ackLen++] = (char)LoRa.read();
+      }
       while (LoRa.available()) {
-        received += (char)LoRa.read();
+        LoRa.read();
       }
 
-      if (received == "ACK") {
+      if (ackLen == 3 && ackBuf[0] == 'A' && ackBuf[1] == 'C' && ackBuf[2] == 'K') {
         retryCount = 0;
         switchToLoRaWAN();
       }
