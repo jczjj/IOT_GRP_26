@@ -14,7 +14,7 @@ class Topology3D {
         this.nodeMeshes = new Map();
         this.signalLines = [];
         
-        // Facility center offset: anchors are at (0,0,0) but facility is centered at (15, 0, 20)
+        // Facility center offset: shift both cuboid and anchors together
         this.facilityCenter = { x: 15, y: 0, z: 20 };
         
         this.init();
@@ -91,30 +91,31 @@ class Topology3D {
         });
         const floor = new THREE.Mesh(floorGeometry, floorMaterial);
         floor.rotation.x = -Math.PI / 2;
-        floor.position.set(15, 0, 20);
+        // Shift floor position by facilityCenter offset to align with anchors
+        floor.position.set(15 + this.facilityCenter.x, 0 + this.facilityCenter.y, 20 + this.facilityCenter.z);
         this.scene.add(floor);
 
-        // Walls (wireframe)
+        // Walls (wireframe) - shift all vertices by facilityCenter offset
         const wallMaterial = new THREE.LineBasicMaterial({ color: 0x444466 });
         
-        // Create wall outline
+        // Create wall outline with offset applied
         const points = [
-            new THREE.Vector3(0, 0, 0),
-            new THREE.Vector3(30, 0, 0),
-            new THREE.Vector3(30, 0, 40),
-            new THREE.Vector3(0, 0, 40),
-            new THREE.Vector3(0, 0, 0),
-            new THREE.Vector3(0, 5, 0),
-            new THREE.Vector3(30, 5, 0),
-            new THREE.Vector3(30, 0, 0),
-            new THREE.Vector3(30, 5, 0),
-            new THREE.Vector3(30, 5, 40),
-            new THREE.Vector3(30, 0, 40),
-            new THREE.Vector3(30, 5, 40),
-            new THREE.Vector3(0, 5, 40),
-            new THREE.Vector3(0, 0, 40),
-            new THREE.Vector3(0, 5, 40),
-            new THREE.Vector3(0, 5, 0)
+            new THREE.Vector3(0 + this.facilityCenter.x, 0 + this.facilityCenter.y, 0 + this.facilityCenter.z),
+            new THREE.Vector3(30 + this.facilityCenter.x, 0 + this.facilityCenter.y, 0 + this.facilityCenter.z),
+            new THREE.Vector3(30 + this.facilityCenter.x, 0 + this.facilityCenter.y, 40 + this.facilityCenter.z),
+            new THREE.Vector3(0 + this.facilityCenter.x, 0 + this.facilityCenter.y, 40 + this.facilityCenter.z),
+            new THREE.Vector3(0 + this.facilityCenter.x, 0 + this.facilityCenter.y, 0 + this.facilityCenter.z),
+            new THREE.Vector3(0 + this.facilityCenter.x, 5 + this.facilityCenter.y, 0 + this.facilityCenter.z),
+            new THREE.Vector3(30 + this.facilityCenter.x, 5 + this.facilityCenter.y, 0 + this.facilityCenter.z),
+            new THREE.Vector3(30 + this.facilityCenter.x, 0 + this.facilityCenter.y, 0 + this.facilityCenter.z),
+            new THREE.Vector3(30 + this.facilityCenter.x, 5 + this.facilityCenter.y, 0 + this.facilityCenter.z),
+            new THREE.Vector3(30 + this.facilityCenter.x, 5 + this.facilityCenter.y, 40 + this.facilityCenter.z),
+            new THREE.Vector3(30 + this.facilityCenter.x, 0 + this.facilityCenter.y, 40 + this.facilityCenter.z),
+            new THREE.Vector3(30 + this.facilityCenter.x, 5 + this.facilityCenter.y, 40 + this.facilityCenter.z),
+            new THREE.Vector3(0 + this.facilityCenter.x, 5 + this.facilityCenter.y, 40 + this.facilityCenter.z),
+            new THREE.Vector3(0 + this.facilityCenter.x, 0 + this.facilityCenter.y, 40 + this.facilityCenter.z),
+            new THREE.Vector3(0 + this.facilityCenter.x, 5 + this.facilityCenter.y, 40 + this.facilityCenter.z),
+            new THREE.Vector3(0 + this.facilityCenter.x, 5 + this.facilityCenter.y, 0 + this.facilityCenter.z)
         ];
         
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
