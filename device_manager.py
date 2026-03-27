@@ -45,9 +45,9 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Anchors can report with moderate delay; keep guard against very stale mixes
-# but allow realistic stagger across gateway/sn nodes.
-MAX_RSSI_TIMESTAMP_SKEW_SECONDS = 12
+# Anchors can report with moderate delay over LoRa relay paths.
+# Keep guard against stale mixes, but allow realistic stagger across nodes.
+MAX_RSSI_TIMESTAMP_SKEW_SECONDS = 18
 
 # Facility dimensions (in meters)
 FACILITY_WIDTH = 30

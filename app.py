@@ -18,7 +18,7 @@ from urllib.parse import quote
 from anchor_layout import GATEWAY_NODE_ID
 from localization import get_default_anchors
 from ttn_integration import get_ttn_client, TTNClient
-from device_manager import get_device_manager, DeviceManager
+from device_manager import get_device_manager, DeviceManager, MAX_RSSI_TIMESTAMP_SKEW_SECONDS
 from database import init_database, get_connection, insert_device_image, get_device_last_updated, get_device_last_uplink, get_latest_rssi_with_timestamps
 
 
@@ -1026,7 +1026,18 @@ def _run_update_all_job(job_id: str):
                                                 pass
                                     if len(ts_vals) >= 2:
                                         skew = (max(ts_vals) - min(ts_vals)).total_seconds()
-                                        diag = f'Localization returned no result (anchor timestamp skew {skew:.1f}s)'
+                                        if skew > MAX_RSSI_TIMESTAMP_SKEW_SECONDS:
+                                            diag = (
+                                                'Localization returned no result '
+                                                f'(anchor timestamp skew {skew:.1f}s exceeds '
+                                                f'limit {MAX_RSSI_TIMESTAMP_SKEW_SECONDS}s)'
+                                            )
+                                        else:
+                                            diag = (
+                                                'Localization returned no result '
+                                                f'(anchor timestamp skew {skew:.1f}s within '
+                                                f'limit {MAX_RSSI_TIMESTAMP_SKEW_SECONDS}s; likely geometry/quality rejection)'
+                                            )
                                 except Exception:
                                     pass
                                 dev.setdefault('logs', []).append(diag)
