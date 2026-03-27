@@ -19,7 +19,7 @@ class Topology3D {
         this.facilityCenter = { x: 15, y: 0, z: 20 };
         // Uniform visual scaling for plotted entities (anchors/devices/links)
         // around the same center. This changes spacing proportionally only.
-        this.worldScale = 2.2;
+        this.worldScale = 2.6;
         // Visual scale for facility shell only. Node/device positions remain unchanged.
         this.cuboidScale = 0.6;
         this.baseCuboidWidth = 30;
