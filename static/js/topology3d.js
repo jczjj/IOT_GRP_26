@@ -131,6 +131,17 @@ class Topology3D {
     }
 
     addStationaryNode(node) {
+        const existing = this.nodeMeshes.get(node.id);
+        if (existing) {
+            // Keep anchor positions synchronized with latest backend coordinates.
+            existing.position.set(
+                node.location.x + this.facilityCenter.x,
+                node.location.z + this.facilityCenter.y,
+                node.location.y + this.facilityCenter.z
+            );
+            return;
+        }
+
         // Different appearance for gateway vs regular nodes
         const isGateway = node.type === 'gateway';
         const color = isGateway ? 0xffe66d : 0x4ecdc4;

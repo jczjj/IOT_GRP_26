@@ -404,7 +404,17 @@ def get_devices():
 @app.route('/api/stationary-nodes')
 def get_nodes():
     """Get all stationary nodes (anchors) with fixed coordinates"""
-    nodes = device_manager.get_stationary_nodes()
+    # Use canonical in-code anchor layout so frontend topology is always aligned
+    # with localization math, regardless of stale DB stationary_nodes rows.
+    nodes = []
+    for anchor in FACILITY_ANCHORS.values():
+        nodes.append({
+            'id': anchor.node_id,
+            'name': anchor.name,
+            'type': 'gateway' if anchor.node_id == GATEWAY_NODE_ID else 'anchor',
+            'location': {'x': anchor.x, 'y': anchor.y, 'z': anchor.z},
+            'status': 'online',
+        })
     return jsonify({
         'success': True,
         'nodes': nodes,
