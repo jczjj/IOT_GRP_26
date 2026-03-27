@@ -605,6 +605,54 @@ def image_bridge_debug():
     })
 
 
+@app.route('/api/image-bridge/push', methods=['POST'])
+def image_bridge_push():
+    """Receive archived image bytes from node0_monitor and ingest immediately."""
+    if 'image' not in request.files:
+        return jsonify({'success': False, 'error': 'Missing multipart field: image'}), 400
+
+    file_obj = request.files['image']
+    if not file_obj or not file_obj.filename:
+        return jsonify({'success': False, 'error': 'Empty uploaded file'}), 400
+
+    filename = file_obj.filename
+    _, ext = os.path.splitext(filename)
+    ext = ext.lower()
+    if ext not in {'.jpg', '.jpeg', '.png', '.webp'}:
+        return jsonify({'success': False, 'error': 'Unsupported image extension'}), 400
+
+    device_id = request.form.get('device_id')
+    request_id = request.form.get('request_id')
+    normalized_device_id = _normalize_device_id(device_id) if device_id else None
+
+    req = _pop_pending_request(device_id=normalized_device_id, request_id=request_id)
+    if not req:
+        with IMAGE_BRIDGE_STATE['lock']:
+            pending_count = len(IMAGE_BRIDGE_STATE['pending_requests'])
+        return jsonify({
+            'success': False,
+            'error': 'No pending request available for image ingestion',
+            'pending_requests': pending_count
+        }), 409
+
+    try:
+        image_bytes = file_obj.read()
+        if not image_bytes:
+            return jsonify({'success': False, 'error': 'Uploaded file has no content'}), 400
+
+        source_name = request.form.get('source_file') or filename
+        _store_image_bytes_for_request(req, f"push:{source_name}", image_bytes, ext)
+        return jsonify({
+            'success': True,
+            'device_id': req['device_id'],
+            'request_id': req['request_id'],
+            'source_file': source_name
+        })
+    except Exception as exc:
+        logger.error(f"Failed to ingest pushed image {filename}: {exc}", exc_info=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
 @app.route('/view-image/<device_id>')
 def view_image(device_id):
     """Render page to view device image"""
