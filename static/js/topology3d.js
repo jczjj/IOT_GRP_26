@@ -30,8 +30,8 @@ class Topology3D {
         const aspect = this.container.clientWidth / this.container.clientHeight;
         this.camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
         // Position camera to view both facility (at 15,0,20) and anchors (around 0,0,0)
-        this.camera.position.set(15, 20, 25);
-        this.camera.lookAt(10, 0, 15);
+        this.camera.position.set(50, 25, 70); 
+        this.camera.lookAt(30, 0, 40);
 
         // Create renderer
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
