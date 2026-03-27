@@ -112,14 +112,12 @@ class RSSIToDistance:
 
 
 class Trilateration:
-    """Solve x/y from anchor geometry, then recover z from gateway distance."""
+    """Solve 2D position from stationary anchors only (sn1/sn2/sn3)."""
 
-    MIN_MEASUREMENTS = 4
-    REQUIRED_ANCHORS = set(ALL_ANCHOR_IDS)
+    MIN_MEASUREMENTS = 3
+    REQUIRED_ANCHORS = {'sn1', 'sn2', 'sn3'}
     MAX_GAUSS_NEWTON_ITERATIONS = 30
     GAUSS_NEWTON_TOLERANCE = 1e-4
-    GATEWAY_WEIGHT_FACTOR = 0.45
-    GATEWAY_DISTANCE_TOLERANCE_METERS = 0.75
     MAX_RESIDUAL_ERROR = 2.0  # Meters - flag unreliable solutions
     MIN_CONFIDENCE_THRESHOLD = 0.5  # Minimum acceptable confidence
 
@@ -133,8 +131,6 @@ class Trilateration:
         power_scale = 10 ** (float(measurement.rssi) / 20.0)
         signal_weight = max(0.08, min(3.5, power_scale * 350.0))
         weight = max(0.02, measurement.confidence * signal_weight)
-        if is_gateway:
-            weight *= Trilateration.GATEWAY_WEIGHT_FACTOR
         return weight
 
     @staticmethod
@@ -155,41 +151,39 @@ class Trilateration:
         if missing_required:
             return False, f"Missing required anchors for 3D trilateration: {', '.join(missing_required)}"
         
-        # Pairwise geometric consistency check using triangle inequality.
-        # For any two anchors i, j with separation L, feasible distances must satisfy:
-        # |d_i - d_j| <= L and d_i + d_j >= L (with margin for RSSI noise).
+        # Check if any two stationary anchors both have very small measured distances
+        # that are physically impossible.
         measurement_map = {m.node_id: m for m in measurements}
-        node_ids = [node_id for node_id in ALL_ANCHOR_IDS if node_id in measurement_map and node_id in anchors]
-        margin = Trilateration.PAIRWISE_DISTANCE_MARGIN_METERS
+        strong_signals = [
+            (node_id, m.distance, m.rssi)
+            for node_id, m in measurement_map.items()
+            if node_id in Trilateration.REQUIRED_ANCHORS and m.distance < 1.0
+        ]
 
-        for i in range(len(node_ids)):
-            for j in range(i + 1, len(node_ids)):
-                node_i = node_ids[i]
-                node_j = node_ids[j]
-                measurement_i = measurement_map[node_i]
-                measurement_j = measurement_map[node_j]
-                anchor_i = anchors[node_i]
-                anchor_j = anchors[node_j]
+        if len(strong_signals) >= 2:
+            for i in range(len(strong_signals)):
+                for j in range(i + 1, len(strong_signals)):
+                    node_i, dist_i, rssi_i = strong_signals[i]
+                    node_j, dist_j, rssi_j = strong_signals[j]
 
-                anchor_distance = math.sqrt(
-                    ((anchor_i.x - anchor_j.x) ** 2)
-                    + ((anchor_i.y - anchor_j.y) ** 2)
-                    + ((anchor_i.z - anchor_j.z) ** 2)
-                )
+                    anchor_i = anchors[node_i]
+                    anchor_j = anchors[node_j]
 
-                distance_diff = abs(measurement_i.distance - measurement_j.distance)
-                distance_sum = measurement_i.distance + measurement_j.distance
-
-                violates_diff = distance_diff > (anchor_distance + margin)
-                violates_sum = distance_sum < (anchor_distance - margin)
-
-                if violates_diff or violates_sum:
-                    return False, (
-                        f"Pairwise geometric inconsistency between {node_i} and {node_j}: "
-                        f"d_i={measurement_i.distance:.2f}m, d_j={measurement_j.distance:.2f}m, "
-                        f"anchor_separation={anchor_distance:.2f}m, "
-                        f"|d_i-d_j|={distance_diff:.2f}, d_i+d_j={distance_sum:.2f}."
+                    anchor_distance = math.sqrt(
+                        ((anchor_i.x - anchor_j.x) ** 2)
+                        + ((anchor_i.y - anchor_j.y) ** 2)
+                        + ((anchor_i.z - anchor_j.z) ** 2)
                     )
+
+                    sum_of_radii = dist_i + dist_j
+
+                    if sum_of_radii < anchor_distance * 0.5:
+                        return False, (
+                            f"Impossible measurements: {node_i}({dist_i:.2f}m) and {node_j}({dist_j:.2f}m) "
+                            f"claim device is <1m from both, but anchors are {anchor_distance:.2f}m apart. "
+                            f"Device cannot be {dist_i:.2f}m from {node_i} ({rssi_i} dBm) "
+                            f"AND {dist_j:.2f}m from {node_j} ({rssi_j} dBm)."
+                        )
         
         return True, "Measurements are geometrically feasible"
 
@@ -221,29 +215,22 @@ class Trilateration:
             logger.warning('Measurement validation failed: %s', diagnostic_msg)
             return None
 
-        gateway_measurement = measurement_map.get(GATEWAY_NODE_ID)
-        if gateway_measurement is None:
-            logger.warning('Gateway RSSI is required to recover z from trilateration.')
-            return None
-
-        required_ids = [GATEWAY_NODE_ID, 'sn1', 'sn2', 'sn3']
+        required_ids = ['sn1', 'sn2', 'sn3']
         selected_measurements = [measurement_map[node_id] for node_id in required_ids]
         selected_anchors = [anchors[node_id] for node_id in required_ids]
 
-        # Initial guess from weighted anchor centroid.
+        # Initial guess from weighted anchor centroid (xy only).
         init_weights = []
         for m in selected_measurements:
             if use_weights:
-                init_weights.append(Trilateration._measurement_weight(m, is_gateway=(m.node_id == GATEWAY_NODE_ID)))
+                init_weights.append(Trilateration._measurement_weight(m))
             else:
                 init_weights.append(1.0)
         init_weights_np = np.array(init_weights, dtype=float)
         if np.sum(init_weights_np) <= 0:
             init_weights_np = np.ones_like(init_weights_np)
-        anchor_positions = np.array([a.position() for a in selected_anchors], dtype=float)
-        position = np.average(anchor_positions, axis=0, weights=init_weights_np)
-        if prefer_2d:
-            position[2] = FIXED_DEVICE_HEIGHT_METERS
+        anchor_xy = np.array([[a.x, a.y] for a in selected_anchors], dtype=float)
+        position_xy = np.average(anchor_xy, axis=0, weights=init_weights_np)
 
         for _ in range(Trilateration.MAX_GAUSS_NEWTON_ITERATIONS):
             jacobian_rows: List[List[float]] = []
@@ -251,23 +238,18 @@ class Trilateration:
             row_weights: List[float] = []
 
             for anchor, measurement in zip(selected_anchors, selected_measurements):
-                delta = position - anchor.position()
+                delta = np.array([position_xy[0] - anchor.x, position_xy[1] - anchor.y], dtype=float)
                 predicted_distance = float(np.linalg.norm(delta))
                 if predicted_distance < 1e-6:
                     predicted_distance = 1e-6
 
                 residual = predicted_distance - measurement.distance
                 grad = delta / predicted_distance
-                if prefer_2d:
-                    grad[2] = 0.0
 
-                jacobian_rows.append([float(grad[0]), float(grad[1]), float(grad[2])])
+                jacobian_rows.append([float(grad[0]), float(grad[1])])
                 residuals.append(residual)
                 if use_weights:
-                    row_weights.append(Trilateration._measurement_weight(
-                        measurement,
-                        is_gateway=(measurement.node_id == GATEWAY_NODE_ID)
-                    ))
+                    row_weights.append(Trilateration._measurement_weight(measurement))
                 else:
                     row_weights.append(1.0)
 
@@ -282,25 +264,24 @@ class Trilateration:
             weighted_residual = np.diag(np.sqrt(weight_vector)) @ residual_vector
 
             try:
-                delta_position, _, _, _ = np.linalg.lstsq(weighted_jacobian, -weighted_residual, rcond=None)
+                delta_xy, _, _, _ = np.linalg.lstsq(weighted_jacobian, -weighted_residual, rcond=None)
             except np.linalg.LinAlgError as exc:
-                logger.error('3D weighted trilateration failed: %s', exc)
+                logger.error('2D weighted trilateration failed: %s', exc)
                 return None
 
-            position = position + delta_position
-            if prefer_2d:
-                position[2] = FIXED_DEVICE_HEIGHT_METERS
+            position_xy = position_xy + delta_xy
 
-            if float(np.linalg.norm(delta_position)) < Trilateration.GAUSS_NEWTON_TOLERANCE:
+            if float(np.linalg.norm(delta_xy)) < Trilateration.GAUSS_NEWTON_TOLERANCE:
                 break
 
-        x = float(position[0])
-        y = float(position[1])
-        z = float(position[2])
+        x = float(position_xy[0])
+        y = float(position_xy[1])
+        z = 0.0
 
         predicted_distances: Dict[str, float] = {}
         residual_components: List[float] = []
-        for node_id, measurement in measurement_map.items():
+        for node_id in required_ids:
+            measurement = measurement_map[node_id]
             anchor = anchors[node_id]
             predicted_distance = math.sqrt(
                 ((x - anchor.x) ** 2)
@@ -311,7 +292,7 @@ class Trilateration:
             residual_components.append(predicted_distance - measurement.distance)
 
         residual_error = float(np.sqrt(np.mean(np.square(residual_components)))) if residual_components else 0.0
-        measurement_confidence = float(np.mean([measurement.confidence for measurement in measurement_map.values()]))
+        measurement_confidence = float(np.mean([measurement_map[node_id].confidence for node_id in required_ids]))
         geometry_score = max(0.0, 1.0 - min(1.0, residual_error / 5.0))
         confidence = max(0.05, min(1.0, (measurement_confidence * 0.7) + (geometry_score * 0.3)))
         accuracy = max(0.05, min(1.0, confidence * geometry_score))
@@ -338,7 +319,7 @@ class Trilateration:
             'confidence': confidence,
             'accuracy': accuracy,
             'is_reliable': is_reliable,
-            'num_measurements': len(measurement_map),
+            'num_measurements': len(required_ids),
             'predicted_distances': predicted_distances,
             'measurement_validation': diagnostic_msg if not is_valid else 'OK',
             'timestamp': datetime.now().isoformat(),
@@ -355,7 +336,7 @@ def localize_device(
     anchors = anchors or get_default_anchors()
     measurements: List[RSSIMeasurement] = []
 
-    for node_id in ALL_ANCHOR_IDS:
+    for node_id in ('sn1', 'sn2', 'sn3'):
         if node_id not in rssi_readings or node_id not in anchors:
             continue
 
