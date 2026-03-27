@@ -1057,12 +1057,6 @@ async function updateAllLocations() {
 function renderJobConsole(jobId, job) {
     const body = document.getElementById('jobConsoleBody');
     if (!body) return;
-    // Preserve user's scroll position relative to bottom so updates don't
-    // force the view to jump to the top while the user is reading logs.
-    const prevScrollTop = body.scrollTop;
-    const prevScrollHeight = body.scrollHeight;
-    const prevClientHeight = body.clientHeight;
-    const distanceFromBottom = prevScrollHeight - prevScrollTop - prevClientHeight;
     // Header + progress
     const total = (job.device_ids || []).length;
     const updatedCount = (job.updated_devices || []).length;
@@ -1102,14 +1096,8 @@ function renderJobConsole(jobId, job) {
         return `<div style="margin-bottom:8px;"><strong>${did}</strong><div style="margin-top:6px;">${logs || '<span style="color:var(--text-gray)">No logs</span>'}</div></div>`;
     }).join('');
 
-    const newHtml = header + devicesHtml + '<hr/>' + `<div class="job-logs"><h4>Job Logs</h4>${jobLogs}</div>` + '<hr/>' + `<div><h4>Device Logs</h4>${deviceLogs}</div>`;
+    const newHtml = header + devicesHtml + '<hr/>' + `<div><h4>Device Logs</h4>${deviceLogs}</div>` + '<hr/>' + `<div><h4>Job Logs</h4>${jobLogs}</div>`;
     body.innerHTML = newHtml;
-
-    // Restore scroll to keep user's relative position from bottom stable.
-    const newScrollHeight = body.scrollHeight;
-    const newClientHeight = body.clientHeight;
-    const newScrollTop = Math.max(0, newScrollHeight - newClientHeight - distanceFromBottom);
-    body.scrollTop = newScrollTop;
 }
 
 
