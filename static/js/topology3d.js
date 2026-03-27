@@ -17,8 +17,16 @@ class Topology3D {
         
         // Facility center offset: shift both cuboid and anchors together
         this.facilityCenter = { x: 15, y: 0, z: 20 };
+        // Visual scale for facility shell only. Node/device positions remain unchanged.
+        this.cuboidScale = 0.3;
+        this.baseCuboidWidth = 30;
+        this.baseCuboidLength = 40;
+        this.baseCuboidHeight = 5;
+        this.cuboidWidth = this.baseCuboidWidth * this.cuboidScale;
+        this.cuboidLength = this.baseCuboidLength * this.cuboidScale;
+        this.cuboidHeight = this.baseCuboidHeight * this.cuboidScale;
         // Visual center of the cuboid (used for camera target, pivot, and axes helper)
-        this.cuboidCenter = { x: 15 + this.facilityCenter.x, y: 0, z: 20 + this.facilityCenter.z };
+        this.cuboidCenter = { x: this.facilityCenter.x, y: this.facilityCenter.y, z: this.facilityCenter.z };
         
         this.init();
     }
@@ -54,8 +62,10 @@ class Topology3D {
         // Add facility floor and walls
         this.createFacility();
 
-        // Add grid helper - positioned at center of cuboid to match its bounds
-        const gridHelper = new THREE.GridHelper(40, 40, 0x444444, 0x222222);
+        // Add grid helper - sized to the scaled cuboid
+        const gridSize = Math.max(this.cuboidWidth, this.cuboidLength);
+        const gridDivisions = Math.max(8, Math.round(gridSize));
+        const gridHelper = new THREE.GridHelper(gridSize, gridDivisions, 0x444444, 0x222222);
         gridHelper.position.set(this.cuboidCenter.x, this.cuboidCenter.y, this.cuboidCenter.z);
         this.scene.add(gridHelper);
 
@@ -88,8 +98,10 @@ class Topology3D {
     }
 
     createFacility() {
-        // Floor (30m x 40m)
-        const floorGeometry = new THREE.PlaneGeometry(30, 40);
+        // Floor (scaled proportionally from 30m x 40m)
+        const halfWidth = this.cuboidWidth / 2;
+        const halfLength = this.cuboidLength / 2;
+        const floorGeometry = new THREE.PlaneGeometry(this.cuboidWidth, this.cuboidLength);
         const floorMaterial = new THREE.MeshStandardMaterial({
             color: 0x2d2d44,
             side: THREE.DoubleSide,
@@ -98,31 +110,29 @@ class Topology3D {
         });
         const floor = new THREE.Mesh(floorGeometry, floorMaterial);
         floor.rotation.x = -Math.PI / 2;
-        // Shift floor position by facilityCenter offset to align with anchors
-        floor.position.set(15 + this.facilityCenter.x, 0 + this.facilityCenter.y, 20 + this.facilityCenter.z);
+        floor.position.set(this.facilityCenter.x, this.facilityCenter.y, this.facilityCenter.z);
         this.scene.add(floor);
 
-        // Walls (wireframe) - shift all vertices by facilityCenter offset
+        // Walls (wireframe) centered on the same cuboid center
         const wallMaterial = new THREE.LineBasicMaterial({ color: 0x444466 });
-        
-        // Create wall outline with offset applied
+
         const points = [
-            new THREE.Vector3(0 + this.facilityCenter.x, 0 + this.facilityCenter.y, 0 + this.facilityCenter.z),
-            new THREE.Vector3(30 + this.facilityCenter.x, 0 + this.facilityCenter.y, 0 + this.facilityCenter.z),
-            new THREE.Vector3(30 + this.facilityCenter.x, 0 + this.facilityCenter.y, 40 + this.facilityCenter.z),
-            new THREE.Vector3(0 + this.facilityCenter.x, 0 + this.facilityCenter.y, 40 + this.facilityCenter.z),
-            new THREE.Vector3(0 + this.facilityCenter.x, 0 + this.facilityCenter.y, 0 + this.facilityCenter.z),
-            new THREE.Vector3(0 + this.facilityCenter.x, 5 + this.facilityCenter.y, 0 + this.facilityCenter.z),
-            new THREE.Vector3(30 + this.facilityCenter.x, 5 + this.facilityCenter.y, 0 + this.facilityCenter.z),
-            new THREE.Vector3(30 + this.facilityCenter.x, 0 + this.facilityCenter.y, 0 + this.facilityCenter.z),
-            new THREE.Vector3(30 + this.facilityCenter.x, 5 + this.facilityCenter.y, 0 + this.facilityCenter.z),
-            new THREE.Vector3(30 + this.facilityCenter.x, 5 + this.facilityCenter.y, 40 + this.facilityCenter.z),
-            new THREE.Vector3(30 + this.facilityCenter.x, 0 + this.facilityCenter.y, 40 + this.facilityCenter.z),
-            new THREE.Vector3(30 + this.facilityCenter.x, 5 + this.facilityCenter.y, 40 + this.facilityCenter.z),
-            new THREE.Vector3(0 + this.facilityCenter.x, 5 + this.facilityCenter.y, 40 + this.facilityCenter.z),
-            new THREE.Vector3(0 + this.facilityCenter.x, 0 + this.facilityCenter.y, 40 + this.facilityCenter.z),
-            new THREE.Vector3(0 + this.facilityCenter.x, 5 + this.facilityCenter.y, 40 + this.facilityCenter.z),
-            new THREE.Vector3(0 + this.facilityCenter.x, 5 + this.facilityCenter.y, 0 + this.facilityCenter.z)
+            new THREE.Vector3(this.facilityCenter.x - halfWidth, this.facilityCenter.y, this.facilityCenter.z - halfLength),
+            new THREE.Vector3(this.facilityCenter.x + halfWidth, this.facilityCenter.y, this.facilityCenter.z - halfLength),
+            new THREE.Vector3(this.facilityCenter.x + halfWidth, this.facilityCenter.y, this.facilityCenter.z + halfLength),
+            new THREE.Vector3(this.facilityCenter.x - halfWidth, this.facilityCenter.y, this.facilityCenter.z + halfLength),
+            new THREE.Vector3(this.facilityCenter.x - halfWidth, this.facilityCenter.y, this.facilityCenter.z - halfLength),
+            new THREE.Vector3(this.facilityCenter.x - halfWidth, this.facilityCenter.y + this.cuboidHeight, this.facilityCenter.z - halfLength),
+            new THREE.Vector3(this.facilityCenter.x + halfWidth, this.facilityCenter.y + this.cuboidHeight, this.facilityCenter.z - halfLength),
+            new THREE.Vector3(this.facilityCenter.x + halfWidth, this.facilityCenter.y, this.facilityCenter.z - halfLength),
+            new THREE.Vector3(this.facilityCenter.x + halfWidth, this.facilityCenter.y + this.cuboidHeight, this.facilityCenter.z - halfLength),
+            new THREE.Vector3(this.facilityCenter.x + halfWidth, this.facilityCenter.y + this.cuboidHeight, this.facilityCenter.z + halfLength),
+            new THREE.Vector3(this.facilityCenter.x + halfWidth, this.facilityCenter.y, this.facilityCenter.z + halfLength),
+            new THREE.Vector3(this.facilityCenter.x + halfWidth, this.facilityCenter.y + this.cuboidHeight, this.facilityCenter.z + halfLength),
+            new THREE.Vector3(this.facilityCenter.x - halfWidth, this.facilityCenter.y + this.cuboidHeight, this.facilityCenter.z + halfLength),
+            new THREE.Vector3(this.facilityCenter.x - halfWidth, this.facilityCenter.y, this.facilityCenter.z + halfLength),
+            new THREE.Vector3(this.facilityCenter.x - halfWidth, this.facilityCenter.y + this.cuboidHeight, this.facilityCenter.z + halfLength),
+            new THREE.Vector3(this.facilityCenter.x - halfWidth, this.facilityCenter.y + this.cuboidHeight, this.facilityCenter.z - halfLength)
         ];
         
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
@@ -178,7 +188,7 @@ class Topology3D {
         this.addLabel(node.name, mesh.position, 1.5, 0xffffff);
 
         // Add range circle (on floor)
-        this.addRangeCircle(mesh.position, isGateway ? 15 : 10, color);
+        this.addRangeCircle(mesh.position, (isGateway ? 15 : 10) * this.cuboidScale, color);
     }
 
     addDevice(device) {
