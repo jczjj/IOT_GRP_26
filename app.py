@@ -790,7 +790,7 @@ def localize(device_id):
     else:
         return jsonify({
             'success': False,
-            'error': f'Failed to localize device {device_id}. Ensure fresh RSSI readings exist from all 4 anchors.'
+            'error': f'Failed to localize device {device_id}. Ensure fresh RSSI readings exist from sn1, sn2, and sn3.'
         }), 400
 
 
@@ -937,8 +937,8 @@ def _run_update_all_job(job_id: str):
                     logger.info(f"Job {job_id}: sending location request to {did} (attempt {dev['attempts']})")
                     ttn_client.send_location_request_command(did)
                     job.setdefault('logs', []).append(f"Sent location request to {did} at {req_time.isoformat()}")
-                    # record that we're now waiting for RSSI from SNs for this device
-                    job.setdefault('logs', []).append(f"Waiting up to {per_device_timeout}s for RSSI from all 4 anchors (gateway + 3 SNs) for {did} (requested at {req_time.isoformat()})")
+                    # record that we're now waiting for RSSI from stationary anchors for this device
+                    job.setdefault('logs', []).append(f"Waiting up to {per_device_timeout}s for RSSI from 3 stationary anchors (sn1, sn2, sn3) for {did} (requested at {req_time.isoformat()})")
                 except Exception:
                     logger.exception(f"Failed sending location request to {did}")
                     dev.setdefault('logs', []).append('Request failed to send')
@@ -970,7 +970,7 @@ def _run_update_all_job(job_id: str):
                         last_heartbeat = datetime.now()
 
                     anchor_ts = []
-                    for anchor in ['gateway', 'sn1', 'sn2', 'sn3']:
+                    for anchor in ['sn1', 'sn2', 'sn3']:
                         rec = records.get(anchor) or {}
                         ts = rec.get('timestamp')
                         if ts:
@@ -995,7 +995,7 @@ def _run_update_all_job(job_id: str):
                         got_all_rssi = True
                         latest_ts = max(t for t in anchor_ts if t is not None)
                         dev['last_updated'] = latest_ts.isoformat()
-                        dev.setdefault('logs', []).append(f"RSSI from all 4 anchors received at {latest_ts.isoformat()}")
+                        dev.setdefault('logs', []).append(f"RSSI from 3 stationary anchors received at {latest_ts.isoformat()}")
 
                         # attempt localization
                         try:
@@ -1013,7 +1013,7 @@ def _run_update_all_job(job_id: str):
                                 try:
                                     latest_records = get_latest_rssi_with_timestamps(did)
                                     ts_vals = []
-                                    for anchor in ['gateway', 'sn1', 'sn2', 'sn3']:
+                                    for anchor in ['sn1', 'sn2', 'sn3']:
                                         ts = (latest_records.get(anchor) or {}).get('timestamp')
                                         if not ts:
                                             continue
@@ -1053,13 +1053,13 @@ def _run_update_all_job(job_id: str):
 
                 # exited wait loop; log reason
                 if got_all_rssi:
-                    job.setdefault('logs', []).append(f"Device {did} reported all 4 anchors by {datetime.now().isoformat()}")
+                    job.setdefault('logs', []).append(f"Device {did} reported 3 stationary anchors by {datetime.now().isoformat()}")
                 else:
-                    job.setdefault('logs', []).append(f"Device {did} did NOT report all 4 anchors within {per_device_timeout}s (now {datetime.now().isoformat()})")
+                    job.setdefault('logs', []).append(f"Device {did} did NOT report 3 stationary anchors within {per_device_timeout}s (now {datetime.now().isoformat()})")
 
                 if not got_all_rssi:
                     # this attempt timed out for the device; mark and either retry or abandon
-                    dev.setdefault('logs', []).append(f"No full 4-anchor RSSI within {per_device_timeout}s; attempt #{dev.get('attempts',0)}")
+                    dev.setdefault('logs', []).append(f"No full 3-stationary-anchor RSSI within {per_device_timeout}s; attempt #{dev.get('attempts',0)}")
                     job.setdefault('logs', []).append(f"Job {job_id}: device {did} attempt #{dev.get('attempts',0)} timed out at {datetime.now().isoformat()}")
                     if dev.get('attempts', 0) >= max_attempts:
                         dev.setdefault('logs', []).append('Max attempts reached; marking as abandoned')

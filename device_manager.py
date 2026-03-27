@@ -393,7 +393,7 @@ class DeviceManager:
                     logger.warning(f"No RSSI measurements found for {device_id}")
                     return None
 
-                required_nodes = {'gateway', 'sn1', 'sn2', 'sn3'}
+                required_nodes = {'sn1', 'sn2', 'sn3'}
                 missing = required_nodes - rssi_by_node.keys()
                 if missing:
                     logger.warning(f"Cannot localize {device_id}: missing RSSI from {sorted(missing)}")
