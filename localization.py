@@ -118,8 +118,9 @@ class Trilateration:
     REQUIRED_ANCHORS = set(ALL_ANCHOR_IDS)
     MAX_GAUSS_NEWTON_ITERATIONS = 30
     GAUSS_NEWTON_TOLERANCE = 1e-4
-    GATEWAY_WEIGHT_FACTOR = 0.45
-    GATEWAY_BIAS_PRIOR_STD_METERS = 2.5
+    GATEWAY_WEIGHT_FACTOR = 0.7
+    GATEWAY_BIAS_PRIOR_STD_METERS = 0.9
+    PAIRWISE_DISTANCE_MARGIN_METERS = 1.8
     GATEWAY_DISTANCE_TOLERANCE_METERS = 0.75
     MAX_RESIDUAL_ERROR = 2.0  # Meters - flag unreliable solutions
     MIN_CONFIDENCE_THRESHOLD = 0.5  # Minimum acceptable confidence
@@ -156,39 +157,41 @@ class Trilateration:
         if missing_required:
             return False, f"Missing required anchors for 3D trilateration: {', '.join(missing_required)}"
         
-        # Check if any two anchors both have very small measured distances that are physically impossible
+        # Pairwise geometric consistency check using triangle inequality.
+        # For any two anchors i, j with separation L, feasible distances must satisfy:
+        # |d_i - d_j| <= L and d_i + d_j >= L (with margin for RSSI noise).
         measurement_map = {m.node_id: m for m in measurements}
-        strong_signals = [(node_id, m.distance, m.rssi) 
-                          for node_id, m in measurement_map.items() 
-                          if m.distance < 1.0]  # Distance < 1m is "strong"
-        
-        if len(strong_signals) >= 2:
-            # Check distance between anchors with strong signals
-            for i in range(len(strong_signals)):
-                for j in range(i + 1, len(strong_signals)):
-                    node_i, dist_i, rssi_i = strong_signals[i]
-                    node_j, dist_j, rssi_j = strong_signals[j]
-                    
-                    anchor_i = anchors[node_i]
-                    anchor_j = anchors[node_j]
-                    
-                    # Calculate distance between anchors
-                    anchor_distance = math.sqrt(
-                        ((anchor_i.x - anchor_j.x) ** 2) +
-                        ((anchor_i.y - anchor_j.y) ** 2) +
-                        ((anchor_i.z - anchor_j.z) ** 2)
+        node_ids = [node_id for node_id in ALL_ANCHOR_IDS if node_id in measurement_map and node_id in anchors]
+        margin = Trilateration.PAIRWISE_DISTANCE_MARGIN_METERS
+
+        for i in range(len(node_ids)):
+            for j in range(i + 1, len(node_ids)):
+                node_i = node_ids[i]
+                node_j = node_ids[j]
+                measurement_i = measurement_map[node_i]
+                measurement_j = measurement_map[node_j]
+                anchor_i = anchors[node_i]
+                anchor_j = anchors[node_j]
+
+                anchor_distance = math.sqrt(
+                    ((anchor_i.x - anchor_j.x) ** 2)
+                    + ((anchor_i.y - anchor_j.y) ** 2)
+                    + ((anchor_i.z - anchor_j.z) ** 2)
+                )
+
+                distance_diff = abs(measurement_i.distance - measurement_j.distance)
+                distance_sum = measurement_i.distance + measurement_j.distance
+
+                violates_diff = distance_diff > (anchor_distance + margin)
+                violates_sum = distance_sum < (anchor_distance - margin)
+
+                if violates_diff or violates_sum:
+                    return False, (
+                        f"Pairwise geometric inconsistency between {node_i} and {node_j}: "
+                        f"d_i={measurement_i.distance:.2f}m, d_j={measurement_j.distance:.2f}m, "
+                        f"anchor_separation={anchor_distance:.2f}m, "
+                        f"|d_i-d_j|={distance_diff:.2f}, d_i+d_j={distance_sum:.2f}."
                     )
-                    
-                    # For two circles to intersect, sum of radii must be >= anchor distance
-                    sum_of_radii = dist_i + dist_j
-                    
-                    if sum_of_radii < anchor_distance * 0.5:  # Very generous tolerance
-                        return False, (
-                            f"Impossible measurements: {node_i}({dist_i:.2f}m) and {node_j}({dist_j:.2f}m) "
-                            f"claim device is <1m from both, but anchors are {anchor_distance:.2f}m apart. "
-                            f"Device cannot be {dist_i:.2f}m from {node_i} ({rssi_i} dBm) "
-                            f"AND {dist_j:.2f}m from {node_j} ({rssi_j} dBm)."
-                        )
         
         return True, "Measurements are geometrically feasible"
 
@@ -218,8 +221,7 @@ class Trilateration:
         is_valid, diagnostic_msg = Trilateration.validate_measurements(measurements, anchors)
         if not is_valid:
             logger.warning('Measurement validation failed: %s', diagnostic_msg)
-            # Don't reject immediately, but flag it in the result
-            # This helps capture the issue for debugging
+            return None
 
         gateway_measurement = measurement_map.get(GATEWAY_NODE_ID)
         if gateway_measurement is None:

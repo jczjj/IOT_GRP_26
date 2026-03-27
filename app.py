@@ -753,7 +753,7 @@ def localize(device_id):
             'message': str
         }
     """
-    use_2d = request.args.get('use_2d', 'true').lower() == 'true'
+    use_2d = request.args.get('use_2d', 'false').lower() == 'true'
     
     result = device_manager.localize_device(device_id, use_2d=use_2d)
     
@@ -790,7 +790,7 @@ def localize(device_id):
     else:
         return jsonify({
             'success': False,
-            'error': f'Failed to localize device {device_id}. Ensure RSSI readings exist from at least 3 anchor nodes.'
+            'error': f'Failed to localize device {device_id}. Ensure fresh RSSI readings exist from all 4 anchors.'
         }), 400
 
 

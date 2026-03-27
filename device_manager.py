@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 # Anchors can report with moderate delay; keep guard against very stale mixes
 # but allow realistic stagger across gateway/sn nodes.
-MAX_RSSI_TIMESTAMP_SKEW_SECONDS = 35
+MAX_RSSI_TIMESTAMP_SKEW_SECONDS = 12
 
 # Facility dimensions (in meters)
 FACILITY_WIDTH = 30
@@ -341,7 +341,7 @@ class DeviceManager:
 
         return [device_id, 'gateway']
     
-    def localize_device(self, device_id: str, use_2d: bool = True) -> Optional[Dict[str, Any]]:
+    def localize_device(self, device_id: str, use_2d: bool = False) -> Optional[Dict[str, Any]]:
         """
         Calculate device location using RSSI trilateration.
         
@@ -422,12 +422,18 @@ class DeviceManager:
                     filter_outliers=True
                 )
                 
-                if result:
+                if result and result.get('is_reliable', False):
                     # Update device location in database
                     pos = result['position']
                     update_device_location(device_id, pos['x'], pos['y'], pos['z'])
                     logger.info(f"Updated {device_id} location via trilateration: ({pos['x']:.2f}, {pos['y']:.2f}, {pos['z']:.2f})")
                     
+                    return result
+                elif result and not result.get('is_reliable', False):
+                    logger.warning(
+                        f"Localization for {device_id} marked unreliable; skipping DB location update. "
+                        f"Residual={result.get('residual_error', 'n/a')}, confidence={result.get('confidence', 'n/a')}"
+                    )
                     return result
                 else:
                     logger.warning(f"Trilateration failed for {device_id}")
