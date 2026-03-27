@@ -118,6 +118,15 @@ function setupEventListeners() {
     document.getElementById('resetView').addEventListener('click', () => {
         topology3d.resetView();
     });
+
+    // Toggle distance overlays
+    const toggleDistancesBtn = document.getElementById('toggleDistances');
+    if (toggleDistancesBtn) {
+        toggleDistancesBtn.addEventListener('click', () => {
+            const isVisible = topology3d.toggleDistanceOverlay();
+            toggleDistancesBtn.textContent = isVisible ? 'Hide Distances' : 'Show Distances';
+        });
+    }
     
     // Refresh data button
     document.getElementById('refreshData').addEventListener('click', () => {

@@ -14,6 +14,8 @@ class Topology3D {
         this.nodeMeshes = new Map();
         this.deviceLabels = new Map();  // Track device labels for cleanup
         this.signalLines = [];
+        this.distanceOverlays = [];
+        this.showDistanceOverlays = false;
         
         // Facility center offset: shift both cuboid and anchors together
         this.facilityCenter = { x: 15, y: 0, z: 20 };
@@ -161,6 +163,13 @@ class Topology3D {
                 worldPos.y,
                 worldPos.z
             );
+            existing.userData = {
+                ...(existing.userData || {}),
+                logicalLocation: { ...node.location },
+                nodeType: node.type,
+                nodeId: node.id
+            };
+            this.refreshDistanceOverlays();
             return;
         }
 
@@ -191,7 +200,10 @@ class Topology3D {
         mesh.userData = { 
             originalScale: size,
             pulseSpeed: isGateway ? 0.02 : 0.015,
-            id: node.id
+            id: node.id,
+            logicalLocation: { ...node.location },
+            nodeType: node.type,
+            nodeId: node.id
         };
 
         this.scene.add(mesh);
@@ -202,6 +214,7 @@ class Topology3D {
 
         // Add range circle (on floor)
         this.addRangeCircle(mesh.position, (isGateway ? 15 : 10) * this.cuboidScale, color);
+        this.refreshDistanceOverlays();
     }
 
     addDevice(device) {
@@ -238,6 +251,83 @@ class Topology3D {
 
         // Draw RSSI signal lines to stationary nodes
         this.drawRSSILines(device);
+        this.refreshDistanceOverlays();
+    }
+
+    clearDistanceOverlays() {
+        this.distanceOverlays.forEach(entry => {
+            if (entry.sprite) {
+                this.scene.remove(entry.sprite);
+            }
+            if (entry.line) {
+                this.scene.remove(entry.line);
+            }
+        });
+        this.distanceOverlays = [];
+    }
+
+    refreshDistanceOverlays() {
+        if (!this.showDistanceOverlays) {
+            this.clearDistanceOverlays();
+            return;
+        }
+
+        this.clearDistanceOverlays();
+
+        const stationaryNodes = Array.from(this.nodeMeshes.values())
+            .filter(mesh => (mesh.userData?.nodeType || 'anchor') !== 'gateway');
+
+        this.deviceMeshes.forEach(deviceMesh => {
+            const device = deviceMesh.userData?.device;
+            if (!device || !device.location) {
+                return;
+            }
+
+            stationaryNodes.forEach(nodeMesh => {
+                const nodeLoc = nodeMesh.userData?.logicalLocation;
+                if (!nodeLoc) {
+                    return;
+                }
+
+                // Compute metric distance from logical coordinates (meters), not scaled world coords.
+                const dx = Number(device.location.x) - Number(nodeLoc.x);
+                const dy = Number(device.location.y) - Number(nodeLoc.y);
+                const dz = Number(device.location.z || 0) - Number(nodeLoc.z || 0);
+                const distanceMeters = Math.sqrt((dx * dx) + (dy * dy) + (dz * dz));
+
+                const start = deviceMesh.position.clone();
+                const end = nodeMesh.position.clone();
+                const midpoint = start.clone().add(end).multiplyScalar(0.5);
+
+                const lineGeometry = new THREE.BufferGeometry().setFromPoints([start, end]);
+                const lineMaterial = new THREE.LineDashedMaterial({
+                    color: 0xffffff,
+                    dashSize: 0.5,
+                    gapSize: 0.3,
+                    transparent: true,
+                    opacity: 0.22
+                });
+                const line = new THREE.Line(lineGeometry, lineMaterial);
+                line.computeLineDistances();
+                this.scene.add(line);
+
+                const text = `${nodeMesh.userData?.nodeId || 'node'}: ${distanceMeters.toFixed(2)}m`;
+                const sprite = this.createLabel(text, midpoint, 0.7, 0xffffff);
+                sprite.scale.set(3.6, 0.9, 1);
+
+                this.distanceOverlays.push({ sprite, line });
+            });
+        });
+    }
+
+    setDistanceOverlayVisible(visible) {
+        this.showDistanceOverlays = Boolean(visible);
+        this.refreshDistanceOverlays();
+    }
+
+    toggleDistanceOverlay() {
+        this.setDistanceOverlayVisible(!this.showDistanceOverlays);
+        return this.showDistanceOverlays;
     }
 
     drawRSSILines(device) {
@@ -318,6 +408,8 @@ class Topology3D {
     }
 
     clearDevices() {
+        this.clearDistanceOverlays();
+
         // Remove all device meshes
         this.deviceMeshes.forEach(mesh => {
             this.scene.remove(mesh);
@@ -340,6 +432,7 @@ class Topology3D {
     updateDevices(devices) {
         this.clearDevices();
         devices.forEach(device => this.addDevice(device));
+        this.refreshDistanceOverlays();
     }
 
     animate() {
