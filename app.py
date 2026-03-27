@@ -606,6 +606,7 @@ def image_bridge_debug():
 
 
 @app.route('/api/image-bridge/push', methods=['POST'])
+@app.route('/api/image-bridge/push/', methods=['POST'])
 def image_bridge_push():
     """Receive archived image bytes from node0_monitor and ingest immediately."""
     if 'image' not in request.files:
