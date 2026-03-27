@@ -107,12 +107,16 @@ def _register_pending_image_request(device_id: str) -> dict:
 def _seed_archive_files_once():
     """Mark current archive files as known so only newly arrived files are processed."""
     if not os.path.isdir(WIFI_HOPPING_ARCHIVE_DIR):
+        logger.warning(f"Archive directory not found: {WIFI_HOPPING_ARCHIVE_DIR}")
         return
     with IMAGE_BRIDGE_STATE['lock']:
+        count = 0
         for name in os.listdir(WIFI_HOPPING_ARCHIVE_DIR):
             full = os.path.join(WIFI_HOPPING_ARCHIVE_DIR, name)
             if os.path.isfile(full):
                 IMAGE_BRIDGE_STATE['known_files'].add(name)
+                count += 1
+    logger.info(f"Seeded {count} existing files as known in archive")
 
 
 def _ingest_archive_image(filepath: str):
@@ -120,18 +124,21 @@ def _ingest_archive_image(filepath: str):
     _, ext = os.path.splitext(filepath)
     ext = ext.lower()
     if ext not in {'.jpg', '.jpeg', '.png', '.webp'}:
+        logger.debug(f"Skipping non-image file: {filepath}")
         return
 
     with IMAGE_BRIDGE_STATE['lock']:
         pending = IMAGE_BRIDGE_STATE['pending_requests']
+        pending_count = len(pending)
         req = pending.pop(0) if pending else None
 
     if not req:
-        logger.info(f"Image arrived but no pending request: {filepath}")
+        logger.warning(f"Image arrived ({os.path.basename(filepath)}) but no pending request! Pending queue size: {pending_count}")
         return
 
     device_id = req['device_id']
     request_id = req['request_id']
+    logger.debug(f"Ingesting image for device {device_id} (request {request_id}): {os.path.basename(filepath)}")
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     latest_filename = f"{device_id}_latest{ext}"
     ts_filename = f"{device_id}_{ts}{ext}"
@@ -155,7 +162,7 @@ def _ingest_archive_image(filepath: str):
             }
 
         logger.info(
-            f"✓ Bridged Wi-Fi image to dashboard for {device_id}: source={os.path.basename(filepath)}"
+            f"✓ Bridged Wi-Fi image to dashboard for {device_id}: {latest_filename} (request {request_id}) source={os.path.basename(filepath)}"
         )
     except Exception as exc:
         logger.error(f"Failed to ingest archive image {filepath}: {exc}", exc_info=True)
@@ -165,10 +172,15 @@ def _image_bridge_watcher():
     """Background watcher that detects newly arrived files from Wi-Fi hopping server."""
     _seed_archive_files_once()
     logger.info(f"Image bridge watcher started on {WIFI_HOPPING_ARCHIVE_DIR}")
+    logger.info(f"Archive poll interval: {IMAGE_WATCH_POLL_SECONDS}s")
     while True:
         try:
             if os.path.isdir(WIFI_HOPPING_ARCHIVE_DIR):
                 names = sorted(os.listdir(WIFI_HOPPING_ARCHIVE_DIR))
+                with IMAGE_BRIDGE_STATE['lock']:
+                    known_count = len(IMAGE_BRIDGE_STATE['known_files'])
+                    pending_count = len(IMAGE_BRIDGE_STATE['pending_requests'])
+                new_count = 0
                 for name in names:
                     full = os.path.join(WIFI_HOPPING_ARCHIVE_DIR, name)
                     if not os.path.isfile(full):
@@ -177,7 +189,12 @@ def _image_bridge_watcher():
                         if name in IMAGE_BRIDGE_STATE['known_files']:
                             continue
                         IMAGE_BRIDGE_STATE['known_files'].add(name)
+                        new_count += 1
                     _ingest_archive_image(full)
+                if new_count > 0:
+                    logger.debug(f"Archive scan: {len(names)} total files, {known_count} known, {new_count} new ingested. Pending requests: {pending_count}")
+            else:
+                logger.warning(f"Archive directory unavailable: {WIFI_HOPPING_ARCHIVE_DIR}")
             time.sleep(IMAGE_WATCH_POLL_SECONDS)
         except Exception as exc:
             logger.error(f"Image bridge watcher error: {exc}", exc_info=True)
@@ -337,6 +354,11 @@ def request_image(device_id):
     all_ok = all(r['success'] for r in results)
     req = _register_pending_image_request(effective_device_id) if all_ok else None
 
+    if req:
+        logger.info(f"📸 Registered pending image request for {effective_device_id} (request_id: {req['request_id']}, path: {path})")
+    else:
+        logger.warning(f"Failed to register pending request for {effective_device_id} - TTN downlinks failed")
+
     return jsonify({
         'success': all_ok,
         'message': f'Image request sent along path for device {effective_device_id}',
@@ -409,6 +431,38 @@ def request_image_status(device_id):
         'timestamp': image_data.get('timestamp'),
         'size': image_data.get('size'),
         'resolution': image_data.get('resolution')
+    })
+
+
+@app.route('/api/image-bridge-debug')
+def image_bridge_debug():
+    """Debug endpoint to see image bridge watcher state"""
+    with IMAGE_BRIDGE_STATE['lock']:
+        pending = []
+        for req in IMAGE_BRIDGE_STATE['pending_requests']:
+            pending.append({
+                'request_id': req['request_id'][:8] + '...',
+                'device_id': req['device_id'],
+                'requested_at': req['requested_at']
+            })
+        received_by_device = {}
+        for dev_id, info in IMAGE_BRIDGE_STATE['last_received_by_device'].items():
+            received_by_device[dev_id] = {
+                'request_id': info['request_id'][:8] + '...',
+                'received_at': info['received_at'],
+                'source_file': info['source_file']
+            }
+
+    return jsonify({
+        'success': True,
+        'archive_dir': WIFI_HOPPING_ARCHIVE_DIR,
+        'archive_dir_exists': os.path.isdir(WIFI_HOPPING_ARCHIVE_DIR),
+        'poll_interval_seconds': IMAGE_WATCH_POLL_SECONDS,
+        'known_files_count': len(IMAGE_BRIDGE_STATE['known_files']),
+        'known_files_sample': sorted(list(IMAGE_BRIDGE_STATE['known_files']))[-5:],
+        'pending_requests': pending,
+        'last_received_by_device': received_by_device,
+        'archive_contents': sorted(os.listdir(WIFI_HOPPING_ARCHIVE_DIR))[:20] if os.path.isdir(WIFI_HOPPING_ARCHIVE_DIR) else []
     })
 
 
