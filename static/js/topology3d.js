@@ -51,7 +51,7 @@ class Topology3D {
         const aspect = this.container.clientWidth / this.container.clientHeight;
         this.camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
         // Default overview camera aimed at cuboid center
-        this.camera.position.set(50, 25, 70);
+        this.camera.position.set(34, 14, 44);
         this.camera.lookAt(this.cuboidCenter.x, this.cuboidCenter.y, this.cuboidCenter.z);
 
         // Create renderer
@@ -367,7 +367,7 @@ class Topology3D {
     }
 
     resetView() {
-        this.camera.position.set(50, 25, 70);
+        this.camera.position.set(34, 14, 44);
         this.controls.target.set(this.cuboidCenter.x, this.cuboidCenter.y, this.cuboidCenter.z);
         this.controls.update();
     }
