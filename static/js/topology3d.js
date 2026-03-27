@@ -22,8 +22,8 @@ class Topology3D {
         this.worldScale = 2.6;
         // Visual scale for facility shell only. Node/device positions remain unchanged.
         this.cuboidScale = 0.6;
-        this.baseCuboidWidth = 30;
-        this.baseCuboidLength = 40;
+        this.baseCuboidWidth = 50;
+        this.baseCuboidLength = 60;
         this.baseCuboidHeight = 5;
         this.cuboidWidth = this.baseCuboidWidth * this.cuboidScale;
         this.cuboidLength = this.baseCuboidLength * this.cuboidScale;
