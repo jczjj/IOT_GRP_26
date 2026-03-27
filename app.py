@@ -13,6 +13,8 @@ import threading
 import time
 import shutil
 import uuid
+import requests
+from urllib.parse import quote
 from anchor_layout import GATEWAY_NODE_ID
 from localization import get_default_anchors
 from ttn_integration import get_ttn_client, TTNClient
@@ -40,11 +42,13 @@ WIFI_HOPPING_ARCHIVE_DIR = os.environ.get(
     '/home/sdn_service/poc/file_transfer/archive'
 )
 IMAGE_WATCH_POLL_SECONDS = float(os.environ.get('IMAGE_WATCH_POLL_SECONDS', '2'))
+WIFI_HOPPING_SERVER_BASE_URL = os.environ.get('WIFI_HOPPING_SERVER_BASE_URL', 'http://127.0.0.1:5000').rstrip('/')
 
 # Shared state for image-bridge watcher and request polling.
 IMAGE_BRIDGE_STATE = {
     'lock': threading.RLock(),
     'known_files': set(),
+    'known_remote_files': set(),
     'pending_requests': [],
     'last_received_by_device': {}
 }
@@ -104,6 +108,83 @@ def _register_pending_image_request(device_id: str) -> dict:
     return req
 
 
+def _pop_pending_request(device_id: str = None, request_id: str = None):
+    """Pop a pending image request. If filters are provided, pop matching one."""
+    with IMAGE_BRIDGE_STATE['lock']:
+        pending = IMAGE_BRIDGE_STATE['pending_requests']
+        if not pending:
+            return None
+        if not device_id and not request_id:
+            return pending.pop(0)
+        for i, req in enumerate(pending):
+            if device_id and req.get('device_id') != device_id:
+                continue
+            if request_id and req.get('request_id') != request_id:
+                continue
+            return pending.pop(i)
+    return None
+
+
+def _get_pending_request(device_id: str = None, request_id: str = None):
+    """Get a pending request without removing it."""
+    with IMAGE_BRIDGE_STATE['lock']:
+        for req in IMAGE_BRIDGE_STATE['pending_requests']:
+            if device_id and req.get('device_id') != device_id:
+                continue
+            if request_id and req.get('request_id') != request_id:
+                continue
+            return dict(req)
+    return None
+
+
+def _extract_archive_timestamp(filename: str):
+    """Parse timestamps from names like gatita_YYYYmmdd_HHMMSS.png."""
+    base = os.path.basename(filename)
+    stem = os.path.splitext(base)[0]
+    if '_' not in stem:
+        return None
+    parts = stem.split('_')
+    if len(parts) < 3:
+        return None
+    ts_raw = f"{parts[-2]}_{parts[-1]}"
+    try:
+        return datetime.strptime(ts_raw, '%Y%m%d_%H%M%S')
+    except Exception:
+        return None
+
+
+def _store_image_bytes_for_request(req: dict, source_name: str, image_bytes: bytes, ext: str):
+    """Persist image bytes into dashboard storage and DB for a specific request."""
+    device_id = req['device_id']
+    request_id = req['request_id']
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    latest_filename = f"{device_id}_latest{ext}"
+    ts_filename = f"{device_id}_{ts}{ext}"
+    latest_path = os.path.join(app.config['UPLOAD_FOLDER'], latest_filename)
+    ts_path = os.path.join(app.config['UPLOAD_FOLDER'], ts_filename)
+
+    with open(ts_path, 'wb') as f:
+        f.write(image_bytes)
+    with open(latest_path, 'wb') as f:
+        f.write(image_bytes)
+
+    size_bytes = len(image_bytes)
+    insert_device_image(device_id, latest_path, size_bytes, resolution='Unknown')
+
+    with IMAGE_BRIDGE_STATE['lock']:
+        IMAGE_BRIDGE_STATE['last_received_by_device'][device_id] = {
+            'request_id': request_id,
+            'received_at': datetime.now().isoformat(),
+            'image_url': f"/static/images/captured/{latest_filename}",
+            'source_file': source_name
+        }
+
+    logger.info(
+        f"✓ Bridged Wi-Fi image to dashboard for {device_id}: {latest_filename} "
+        f"(request {request_id}) source={source_name}"
+    )
+
+
 def _seed_archive_files_once():
     """Mark current archive files as known so only newly arrived files are processed."""
     if not os.path.isdir(WIFI_HOPPING_ARCHIVE_DIR):
@@ -128,9 +209,8 @@ def _ingest_archive_image(filepath: str):
         return
 
     with IMAGE_BRIDGE_STATE['lock']:
-        pending = IMAGE_BRIDGE_STATE['pending_requests']
-        pending_count = len(pending)
-        req = pending.pop(0) if pending else None
+        pending_count = len(IMAGE_BRIDGE_STATE['pending_requests'])
+    req = _pop_pending_request()
 
     if not req:
         logger.warning(f"Image arrived ({os.path.basename(filepath)}) but no pending request! Pending queue size: {pending_count}")
@@ -139,33 +219,84 @@ def _ingest_archive_image(filepath: str):
     device_id = req['device_id']
     request_id = req['request_id']
     logger.debug(f"Ingesting image for device {device_id} (request {request_id}): {os.path.basename(filepath)}")
-    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-    latest_filename = f"{device_id}_latest{ext}"
-    ts_filename = f"{device_id}_{ts}{ext}"
-
-    latest_path = os.path.join(app.config['UPLOAD_FOLDER'], latest_filename)
-    ts_path = os.path.join(app.config['UPLOAD_FOLDER'], ts_filename)
 
     try:
-        shutil.copy2(filepath, ts_path)
-        shutil.copy2(filepath, latest_path)
-
-        size_bytes = os.path.getsize(latest_path)
-        insert_device_image(device_id, latest_path, size_bytes, resolution='Unknown')
-
-        with IMAGE_BRIDGE_STATE['lock']:
-            IMAGE_BRIDGE_STATE['last_received_by_device'][device_id] = {
-                'request_id': request_id,
-                'received_at': datetime.now().isoformat(),
-                'image_url': f"/static/images/captured/{latest_filename}",
-                'source_file': os.path.basename(filepath)
-            }
-
-        logger.info(
-            f"✓ Bridged Wi-Fi image to dashboard for {device_id}: {latest_filename} (request {request_id}) source={os.path.basename(filepath)}"
-        )
+        with open(filepath, 'rb') as src:
+            image_bytes = src.read()
+        _store_image_bytes_for_request(req, os.path.basename(filepath), image_bytes, ext)
     except Exception as exc:
         logger.error(f"Failed to ingest archive image {filepath}: {exc}", exc_info=True)
+
+
+def _pull_latest_archive_image_via_http(device_id: str, request_id: str = None) -> bool:
+    """Fallback: fetch newest archive image from central server HTTP endpoints."""
+    if not WIFI_HOPPING_SERVER_BASE_URL:
+        return False
+
+    req = _get_pending_request(device_id=device_id, request_id=request_id)
+    if not req:
+        return False
+
+    try:
+        list_url = f"{WIFI_HOPPING_SERVER_BASE_URL}/api/files"
+        list_resp = requests.get(list_url, timeout=4)
+        if list_resp.status_code != 200:
+            return False
+        names = list_resp.json()
+        if not isinstance(names, list) or not names:
+            return False
+    except Exception as exc:
+        logger.debug(f"HTTP fallback list failed: {exc}")
+        return False
+
+    requested_at = req.get('requested_at')
+    requested_dt = None
+    if requested_at:
+        try:
+            requested_dt = datetime.fromisoformat(requested_at)
+        except Exception:
+            requested_dt = None
+
+    candidate = None
+    with IMAGE_BRIDGE_STATE['lock']:
+        known_remote = set(IMAGE_BRIDGE_STATE['known_remote_files'])
+
+    for name in names:
+        _, ext = os.path.splitext(name)
+        ext = ext.lower()
+        if ext not in {'.jpg', '.jpeg', '.png', '.webp'}:
+            continue
+        if name in known_remote:
+            continue
+        ts = _extract_archive_timestamp(name)
+        if requested_dt and ts and ts < requested_dt:
+            continue
+        candidate = name
+        break
+
+    if not candidate:
+        return False
+
+    try:
+        file_url = f"{WIFI_HOPPING_SERVER_BASE_URL}/files/{quote(candidate)}"
+        file_resp = requests.get(file_url, timeout=8)
+        if file_resp.status_code != 200 or not file_resp.content:
+            return False
+
+        matched_req = _pop_pending_request(device_id=device_id, request_id=request_id)
+        if not matched_req:
+            return False
+
+        _, ext = os.path.splitext(candidate)
+        _store_image_bytes_for_request(matched_req, f"http:{candidate}", file_resp.content, ext.lower())
+
+        with IMAGE_BRIDGE_STATE['lock']:
+            IMAGE_BRIDGE_STATE['known_remote_files'].add(candidate)
+
+        return True
+    except Exception as exc:
+        logger.error(f"HTTP fallback ingest failed for {candidate}: {exc}", exc_info=True)
+        return False
 
 
 def _image_bridge_watcher():
@@ -411,7 +542,13 @@ def request_image_status(device_id):
             last = IMAGE_BRIDGE_STATE['last_received_by_device'].get(effective_device_id)
 
     if not last:
-        return jsonify({'success': True, 'ready': False})
+        # Fallback: pull from central server HTTP archive if local watcher missed file events.
+        pulled = _pull_latest_archive_image_via_http(effective_device_id, request_id=request_id)
+        if pulled:
+            with IMAGE_BRIDGE_STATE['lock']:
+                last = IMAGE_BRIDGE_STATE['last_received_by_device'].get(effective_device_id)
+        if not last:
+            return jsonify({'success': True, 'ready': False})
 
     if request_id and last.get('request_id') != request_id:
         return jsonify({'success': True, 'ready': False})
@@ -456,10 +593,12 @@ def image_bridge_debug():
     return jsonify({
         'success': True,
         'archive_dir': WIFI_HOPPING_ARCHIVE_DIR,
+        'http_fallback_base_url': WIFI_HOPPING_SERVER_BASE_URL,
         'archive_dir_exists': os.path.isdir(WIFI_HOPPING_ARCHIVE_DIR),
         'poll_interval_seconds': IMAGE_WATCH_POLL_SECONDS,
         'known_files_count': len(IMAGE_BRIDGE_STATE['known_files']),
         'known_files_sample': sorted(list(IMAGE_BRIDGE_STATE['known_files']))[-5:],
+        'known_remote_files_count': len(IMAGE_BRIDGE_STATE['known_remote_files']),
         'pending_requests': pending,
         'last_received_by_device': received_by_device,
         'archive_contents': sorted(os.listdir(WIFI_HOPPING_ARCHIVE_DIR))[:20] if os.path.isdir(WIFI_HOPPING_ARCHIVE_DIR) else []
