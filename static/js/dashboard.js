@@ -40,7 +40,7 @@ function buildRssiSignature(device) {
     return entries.map(([nodeId, rssi]) => `${nodeId}:${rssi}`).join('|');
 }
 
-const ALL_ANCHOR_IDS = ['gateway', 'sn1', 'sn2', 'sn3'];
+const ALL_ANCHOR_IDS = ['sn1', 'sn2', 'sn3'];
 
 function hasAllFreshRssi(rssiReadings) {
     return ALL_ANCHOR_IDS.every(id => Number.isFinite((rssiReadings || {})[id]));
@@ -336,7 +336,7 @@ function createDeviceCard(device) {
     // Calculate RSSI measurement count
     const rssiCount = getValidRssiCount(device.rssi_readings);
     const localizationReady = hasAllFreshRssi(device.rssi_readings);
-    const readyIndicator = localizationReady ? '✓ Ready' : `${rssiCount}/4`;
+    const readyIndicator = localizationReady ? '✓ Ready' : `${rssiCount}/3`;
     const readyClass = localizationReady ? 'badge-success' : 'badge-warning';
     
     card.innerHTML = `
@@ -474,7 +474,7 @@ function showDeviceDetails(device) {
                         <td><strong>Anchor Nodes</strong></td>
                         <td>
                             <span class="badge badge-${localizationReady ? 'success' : 'warning'}">
-                                ${rssiCount}/4
+                                ${rssiCount}/3
                             </span>
                             ${localizationReady ? ' ✓ Ready' : ' Need more data'}
                         </td>
