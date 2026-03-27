@@ -422,18 +422,19 @@ class DeviceManager:
                     filter_outliers=True
                 )
                 
-                if result and result.get('is_reliable', False):
-                    # Update device location in database
+                if result:
+                    # Always persist latest estimate so dashboard position does not freeze.
+                    # Reliability flags are still returned/logged for operator awareness.
                     pos = result['position']
                     update_device_location(device_id, pos['x'], pos['y'], pos['z'])
-                    logger.info(f"Updated {device_id} location via trilateration: ({pos['x']:.2f}, {pos['y']:.2f}, {pos['z']:.2f})")
-                    
-                    return result
-                elif result and not result.get('is_reliable', False):
-                    logger.warning(
-                        f"Localization for {device_id} marked unreliable; skipping DB location update. "
-                        f"Residual={result.get('residual_error', 'n/a')}, confidence={result.get('confidence', 'n/a')}"
-                    )
+                    if result.get('is_reliable', False):
+                        logger.info(f"Updated {device_id} location via trilateration: ({pos['x']:.2f}, {pos['y']:.2f}, {pos['z']:.2f})")
+                    else:
+                        logger.warning(
+                            f"Updated {device_id} location with UNRELIABLE trilateration: "
+                            f"({pos['x']:.2f}, {pos['y']:.2f}, {pos['z']:.2f}), "
+                            f"Residual={result.get('residual_error', 'n/a')}, confidence={result.get('confidence', 'n/a')}"
+                        )
                     return result
                 else:
                     logger.warning(f"Trilateration failed for {device_id}")
