@@ -336,7 +336,7 @@ threading.Thread(target=_image_bridge_watcher, daemon=True).start()
 
 
 # Best Path algorithm constants
-MAX_DISTANCE = 5.0  # Maximum distance in meters for direct communication
+MAX_DISTANCE = 0.5  # Maximum distance in meters for direct communication
 TARGET_NODE = ''  # We want to reach the gateway
 
 def find_best_path(database, target_node):

@@ -17,6 +17,8 @@ class Topology3D {
         
         // Facility center offset: shift both cuboid and anchors together
         this.facilityCenter = { x: 15, y: 0, z: 20 };
+        // Visual center of the cuboid (used for camera target, pivot, and axes helper)
+        this.cuboidCenter = { x: 15 + this.facilityCenter.x, y: 0, z: 20 + this.facilityCenter.z };
         
         this.init();
     }
@@ -29,9 +31,9 @@ class Topology3D {
         // Create camera
         const aspect = this.container.clientWidth / this.container.clientHeight;
         this.camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
-        // Position camera to view both facility (at 15,0,20) and anchors (around 0,0,0)
-        this.camera.position.set(50, 25, 70); 
-        this.camera.lookAt(30, 0, 40);
+        // Default overview camera aimed at cuboid center
+        this.camera.position.set(50, 25, 70);
+        this.camera.lookAt(this.cuboidCenter.x, this.cuboidCenter.y, this.cuboidCenter.z);
 
         // Create renderer
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -42,6 +44,9 @@ class Topology3D {
         this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
+        this.controls.target.set(this.cuboidCenter.x, this.cuboidCenter.y, this.cuboidCenter.z);
+        this.controls.update();
+        this.controls.saveState();
 
         // Add lights
         this.addLights();
@@ -51,12 +56,12 @@ class Topology3D {
 
         // Add grid helper - positioned at center of cuboid to match its bounds
         const gridHelper = new THREE.GridHelper(40, 40, 0x444444, 0x222222);
-        // Position grid center at the cuboid center: (15+45)/2=30, (20+60)/2=40 (after offset)
-        gridHelper.position.set(15 + this.facilityCenter.x, 0, 20 + this.facilityCenter.z);
+        gridHelper.position.set(this.cuboidCenter.x, this.cuboidCenter.y, this.cuboidCenter.z);
         this.scene.add(gridHelper);
 
         // Add axes helper
         const axesHelper = new THREE.AxesHelper(5);
+        axesHelper.position.set(this.cuboidCenter.x, this.cuboidCenter.y, this.cuboidCenter.z);
         this.scene.add(axesHelper);
 
         // Handle window resize
@@ -326,12 +331,9 @@ class Topology3D {
     }
 
     resetView() {
-        // Position camera above and outside the cuboid to overlook the facility
-        // Cuboid bounds after offset: (15, 0, 20) to (45, 5, 60)
-        // Camera positioned at an angle above the cuboid center
         this.camera.position.set(50, 25, 70);
-        this.camera.lookAt(30, 0, 40);
-        this.controls.reset();
+        this.controls.target.set(this.cuboidCenter.x, this.cuboidCenter.y, this.cuboidCenter.z);
+        this.controls.update();
     }
 }
 
