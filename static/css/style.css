@@ -697,8 +697,8 @@ code {
     top: 1.5rem;
     width: 540px;
     min-height: 320px;
-    max-height: 72vh;
-    height: 72vh;
+    max-height: none;
+    height: auto;
     background: var(--bg-medium);
     border-radius: var(--radius);
     box-shadow: 0 12px 40px rgba(0,0,0,0.6);
@@ -706,7 +706,7 @@ code {
     z-index: 3000;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow: visible;
 }
 .job-console-header {
     display: flex;
@@ -725,9 +725,9 @@ code {
 }
 .job-console-body {
     padding: 1rem;
-    overflow-y: auto;
-    flex: 1 1 0;
-    min-height: 0;
+    overflow: visible;
+    flex: 0 0 auto;
+    min-height: auto;
     font-size: 0.87rem;
 }
 .job-table {
@@ -765,8 +765,8 @@ code {
 .log-warning { color: #ffb86b; }
 .device-log-line { color: var(--text-gray); }
 .job-logs {
-    max-height: 150px;
-    overflow: auto;
+    max-height: none;
+    overflow: visible;
     padding: 0.5rem;
     background: var(--bg-dark);
     border-radius: var(--radius-sm);
