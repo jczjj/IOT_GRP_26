@@ -884,14 +884,14 @@ def _run_update_all_job(job_id: str):
 
     job['status'] = 'in_progress'
     start_time = datetime.fromisoformat(job['requested_at'])
-    timeout = job.get('timeout_seconds', 60)
+    timeout = job.get('timeout_seconds', 120)
 
     # Sequential per-device processing: send request to one device,
     # wait up to per-device timeout for an uplink, then localize and continue.
     import time
     from datetime import timedelta
 
-    per_device_timeout = 60  # seconds per device (increased to allow downlink + RSSI)
+    per_device_timeout = 120  # seconds per device (increased to allow downlink + RSSI)
     updated = []
     remaining = []
 
