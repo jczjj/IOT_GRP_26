@@ -17,8 +17,11 @@ class Topology3D {
         
         // Facility center offset: shift both cuboid and anchors together
         this.facilityCenter = { x: 15, y: 0, z: 20 };
+        // Uniform visual scaling for plotted entities (anchors/devices/links)
+        // around the same center. This changes spacing proportionally only.
+        this.worldScale = 2.2;
         // Visual scale for facility shell only. Node/device positions remain unchanged.
-        this.cuboidScale = 0.3;
+        this.cuboidScale = 0.6;
         this.baseCuboidWidth = 30;
         this.baseCuboidLength = 40;
         this.baseCuboidHeight = 5;
@@ -29,6 +32,14 @@ class Topology3D {
         this.cuboidCenter = { x: this.facilityCenter.x, y: this.facilityCenter.y, z: this.facilityCenter.z };
         
         this.init();
+    }
+
+    toWorldPosition(location) {
+        return {
+            x: this.facilityCenter.x + (location.x * this.worldScale),
+            y: this.facilityCenter.y + (location.z * this.worldScale),
+            z: this.facilityCenter.z + (location.y * this.worldScale)
+        };
     }
 
     init() {
@@ -144,10 +155,11 @@ class Topology3D {
         const existing = this.nodeMeshes.get(node.id);
         if (existing) {
             // Keep anchor positions synchronized with latest backend coordinates.
+            const worldPos = this.toWorldPosition(node.location);
             existing.position.set(
-                node.location.x + this.facilityCenter.x,
-                node.location.z + this.facilityCenter.y,
-                node.location.y + this.facilityCenter.z
+                worldPos.x,
+                worldPos.y,
+                worldPos.z
             );
             return;
         }
@@ -168,10 +180,11 @@ class Topology3D {
         });
         const mesh = new THREE.Mesh(geometry, material);
         // Apply facility center offset to anchor positions
+        const worldPos = this.toWorldPosition(node.location);
         mesh.position.set(
-            node.location.x + this.facilityCenter.x, 
-            node.location.z + this.facilityCenter.y, 
-            node.location.y + this.facilityCenter.z
+            worldPos.x,
+            worldPos.y,
+            worldPos.z
         );
 
         // Add pulsing animation
@@ -203,10 +216,11 @@ class Topology3D {
         });
         const mesh = new THREE.Mesh(geometry, material);
         // Apply facility center offset to device position (same as anchors)
+        const worldPos = this.toWorldPosition(device.location);
         mesh.position.set(
-            device.location.x + this.facilityCenter.x, 
-            device.location.z + this.facilityCenter.y, 
-            device.location.y + this.facilityCenter.z
+            worldPos.x,
+            worldPos.y,
+            worldPos.z
         );
         mesh.rotation.x = Math.PI; // Point upward
 
@@ -236,12 +250,13 @@ class Topology3D {
             // Stronger signal (less negative) = brighter line
             const strength = Math.max(0, 1 + (rssi + 90) / 40); // Normalize -90 to -50
             const color = new THREE.Color().setHSL(0.6 - (strength * 0.3), 1, strength * 0.5);
+            const worldPos = this.toWorldPosition(device.location);
 
             const points = [
                 new THREE.Vector3(
-                    device.location.x + this.facilityCenter.x, 
-                    device.location.z + this.facilityCenter.y, 
-                    device.location.y + this.facilityCenter.z
+                    worldPos.x,
+                    worldPos.y,
+                    worldPos.z
                 ),
                 nodeMesh.position.clone()
             ];
