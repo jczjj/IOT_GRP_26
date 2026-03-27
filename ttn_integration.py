@@ -22,7 +22,9 @@ from localization import (
     RSSIToDistance,
     Trilateration,
     get_default_anchors,
+    localize_device,
 )
+from anchor_layout import ALL_ANCHOR_IDS
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -184,7 +186,7 @@ class TTNClient:
             self.rssi_buffer[device_id][node_id] = rssi
             self.rssi_timestamps[device_id][node_id] = datetime.now()
     
-    def localize_if_ready(self, device_id: str, min_anchors: int = 3) -> Optional[Dict[str, Any]]:
+    def localize_if_ready(self, device_id: str, min_anchors: int = 4) -> Optional[Dict[str, Any]]:
         """
         Attempt trilateration if we have enough RSSI measurements
         
@@ -200,28 +202,18 @@ class TTNClient:
             
             if len(rssi_data) < min_anchors:
                 return None
+
+            missing_required = [node_id for node_id in ALL_ANCHOR_IDS if node_id not in rssi_data]
+            if missing_required:
+                return None
             
             # Perform trilateration
-            result = Trilateration.calculate_position(
-                measurements=[
-                    RSSIMeasurement(
-                        node_id=node_id,
-                        rssi=rssi,
-                        distance=RSSIToDistance.rssi_to_distance(rssi, node_id=node_id),
-                        timestamp=datetime.now(),
-                        confidence=RSSIToDistance.calculate_confidence(
-                            rssi,
-                            RSSIToDistance.rssi_to_distance(rssi, node_id=node_id),
-                            len(rssi_data),
-                            node_id=node_id,
-                        ),
-                    )
-                    for node_id, rssi in rssi_data.items()
-                    if node_id in self.anchors
-                ],
+            result = localize_device(
+                device_id=device_id,
+                rssi_readings={node_id: rssi_data[node_id] for node_id in ALL_ANCHOR_IDS},
                 anchors=self.anchors,
-                use_weights=True,
-                prefer_2d=False,
+                use_2d=False,
+                filter_outliers=True,
             )
             
             if result:
@@ -431,7 +423,7 @@ class TTNClient:
         Returns:
             Localization result with position and metrics, or None if failed
         """
-        return self.localize_if_ready(device_id, min_anchors=3)
+        return self.localize_if_ready(device_id, min_anchors=4)
     
     def get_localization_status(self, device_id: str) -> Dict[str, Any]:
         """Get current localization status for device"""

@@ -114,10 +114,28 @@ class RSSIToDistance:
 class Trilateration:
     """Solve x/y from anchor geometry, then recover z from gateway distance."""
 
-    MIN_MEASUREMENTS = 3
+    MIN_MEASUREMENTS = 4
+    REQUIRED_ANCHORS = set(ALL_ANCHOR_IDS)
+    MAX_GAUSS_NEWTON_ITERATIONS = 30
+    GAUSS_NEWTON_TOLERANCE = 1e-4
+    GATEWAY_WEIGHT_FACTOR = 0.45
     GATEWAY_DISTANCE_TOLERANCE_METERS = 0.75
     MAX_RESIDUAL_ERROR = 2.0  # Meters - flag unreliable solutions
     MIN_CONFIDENCE_THRESHOLD = 0.5  # Minimum acceptable confidence
+
+    @staticmethod
+    def _measurement_weight(measurement: RSSIMeasurement, is_gateway: bool = False) -> float:
+        """Compute a fine-grained reliability weight for weighted least squares.
+
+        RSSI is in dBm, so a 1-2 dB change should still adjust weights.
+        Use linearized power scale to preserve that sensitivity.
+        """
+        power_scale = 10 ** (float(measurement.rssi) / 20.0)
+        signal_weight = max(0.08, min(3.5, power_scale * 350.0))
+        weight = max(0.02, measurement.confidence * signal_weight)
+        if is_gateway:
+            weight *= Trilateration.GATEWAY_WEIGHT_FACTOR
+        return weight
 
     @staticmethod
     def validate_measurements(
@@ -129,8 +147,13 @@ class Trilateration:
         
         Returns: (is_valid, diagnostic_message)
         """
-        if len(measurements) < 3:
-            return False, f"Insufficient measurements: {len(measurements)} < 3"
+        if len(measurements) < Trilateration.MIN_MEASUREMENTS:
+            return False, f"Insufficient measurements: {len(measurements)} < {Trilateration.MIN_MEASUREMENTS}"
+
+        measured_anchor_ids = {m.node_id for m in measurements}
+        missing_required = sorted(Trilateration.REQUIRED_ANCHORS - measured_anchor_ids)
+        if missing_required:
+            return False, f"Missing required anchors for 3D trilateration: {', '.join(missing_required)}"
         
         # Check if any two anchors both have very small measured distances that are physically impossible
         measurement_map = {m.node_id: m for m in measurements}
@@ -185,6 +208,11 @@ class Trilateration:
             logger.warning('Insufficient measurements: %s', len(measurement_map))
             return None
 
+        missing_required = sorted(Trilateration.REQUIRED_ANCHORS - set(measurement_map.keys()))
+        if missing_required:
+            logger.warning('Missing required anchors for 3D trilateration: %s', ', '.join(missing_required))
+            return None
+
         # Validate measurements for geometric feasibility
         is_valid, diagnostic_msg = Trilateration.validate_measurements(measurements, anchors)
         if not is_valid:
@@ -197,75 +225,77 @@ class Trilateration:
             logger.warning('Gateway RSSI is required to recover z from trilateration.')
             return None
 
-        gateway_anchor = anchors[GATEWAY_NODE_ID]
-        non_gateway_ids = [node_id for node_id in measurement_map if node_id != GATEWAY_NODE_ID]
-        if len(non_gateway_ids) < 2:
-            logger.warning('Need gateway plus at least two stationary nodes for localization.')
-            return None
+        required_ids = [GATEWAY_NODE_ID, 'sn1', 'sn2', 'sn3']
+        selected_measurements = [measurement_map[node_id] for node_id in required_ids]
+        selected_anchors = [anchors[node_id] for node_id in required_ids]
 
-        rows: List[List[float]] = []
-        targets: List[float] = []
-        weights: List[float] = []
-
-        for node_id in non_gateway_ids:
-            anchor = anchors[node_id]
-            measurement = measurement_map[node_id]
-            rows.append([
-                2 * (gateway_anchor.x - anchor.x),
-                2 * (gateway_anchor.y - anchor.y),
-            ])
-            targets.append(
-                (measurement.distance ** 2)
-                - (gateway_measurement.distance ** 2)
-                - (anchor.x ** 2 + anchor.y ** 2)
-                + (gateway_anchor.x ** 2 + gateway_anchor.y ** 2)
-            )
+        # Initial guess from weighted anchor centroid.
+        init_weights = []
+        for m in selected_measurements:
             if use_weights:
-                # Give stronger RSSI (less negative dBm) more influence in the
-                # weighted least-squares fit while preserving confidence scaling.
-                # Example: -55 dBm -> larger multiplier, -90 dBm -> smaller.
-                signal_strength_weight = max(
-                    0.25,
-                    min(3.0, 1.0 + ((70.0 - abs(float(measurement.rssi))) / 20.0))
-                )
-                weights.append(measurement.confidence * signal_strength_weight)
+                init_weights.append(Trilateration._measurement_weight(m, is_gateway=(m.node_id == GATEWAY_NODE_ID)))
             else:
-                weights.append(1.0)
-
-        matrix = np.array(rows, dtype=float)
-        vector = np.array(targets, dtype=float)
-        weight_vector = np.array(weights, dtype=float)
-
-        if np.any(weight_vector <= 0):
-            weight_vector = np.ones_like(weight_vector)
-
-        weight_matrix = np.diag(np.sqrt(weight_vector))
-        weighted_matrix = weight_matrix @ matrix
-        weighted_vector = weight_matrix @ vector
-
-        try:
-            planar_position, _, _, _ = np.linalg.lstsq(weighted_matrix, weighted_vector, rcond=None)
-        except np.linalg.LinAlgError as exc:
-            logger.error('Planar trilateration failed: %s', exc)
-            return None
-
-        x = float(planar_position[0])
-        y = float(planar_position[1])
-
+                init_weights.append(1.0)
+        init_weights_np = np.array(init_weights, dtype=float)
+        if np.sum(init_weights_np) <= 0:
+            init_weights_np = np.ones_like(init_weights_np)
+        anchor_positions = np.array([a.position() for a in selected_anchors], dtype=float)
+        position = np.average(anchor_positions, axis=0, weights=init_weights_np)
         if prefer_2d:
-            z = FIXED_DEVICE_HEIGHT_METERS
-        else:
-            horizontal_distance_sq = ((x - gateway_anchor.x) ** 2) + ((y - gateway_anchor.y) ** 2)
-            horizontal_distance = math.sqrt(max(horizontal_distance_sq, 0.0))
-            z_squared = (gateway_measurement.distance ** 2) - horizontal_distance_sq
-            if (horizontal_distance - gateway_measurement.distance) > Trilateration.GATEWAY_DISTANCE_TOLERANCE_METERS:
-                logger.warning(
-                    'Gateway RSSI is inconsistent with solved x/y coordinates: horizontal=%.3f, gateway_distance=%.3f',
-                    horizontal_distance,
-                    gateway_measurement.distance,
-                )
+            position[2] = FIXED_DEVICE_HEIGHT_METERS
+
+        for _ in range(Trilateration.MAX_GAUSS_NEWTON_ITERATIONS):
+            jacobian_rows: List[List[float]] = []
+            residuals: List[float] = []
+            row_weights: List[float] = []
+
+            for anchor, measurement in zip(selected_anchors, selected_measurements):
+                delta = position - anchor.position()
+                predicted_distance = float(np.linalg.norm(delta))
+                if predicted_distance < 1e-6:
+                    predicted_distance = 1e-6
+
+                residual = predicted_distance - measurement.distance
+                grad = delta / predicted_distance
+                if prefer_2d:
+                    grad[2] = 0.0
+
+                jacobian_rows.append([float(grad[0]), float(grad[1]), float(grad[2])])
+                residuals.append(residual)
+                if use_weights:
+                    row_weights.append(Trilateration._measurement_weight(
+                        measurement,
+                        is_gateway=(measurement.node_id == GATEWAY_NODE_ID)
+                    ))
+                else:
+                    row_weights.append(1.0)
+
+            jacobian = np.array(jacobian_rows, dtype=float)
+            residual_vector = np.array(residuals, dtype=float)
+            weight_vector = np.array(row_weights, dtype=float)
+
+            if np.any(weight_vector <= 0):
+                weight_vector = np.ones_like(weight_vector)
+
+            weighted_jacobian = np.diag(np.sqrt(weight_vector)) @ jacobian
+            weighted_residual = np.diag(np.sqrt(weight_vector)) @ residual_vector
+
+            try:
+                delta_position, _, _, _ = np.linalg.lstsq(weighted_jacobian, -weighted_residual, rcond=None)
+            except np.linalg.LinAlgError as exc:
+                logger.error('3D weighted trilateration failed: %s', exc)
                 return None
-            z = gateway_anchor.z + math.sqrt(max(0.0, z_squared))
+
+            position = position + delta_position
+            if prefer_2d:
+                position[2] = FIXED_DEVICE_HEIGHT_METERS
+
+            if float(np.linalg.norm(delta_position)) < Trilateration.GAUSS_NEWTON_TOLERANCE:
+                break
+
+        x = float(position[0])
+        y = float(position[1])
+        z = float(position[2])
 
         predicted_distances: Dict[str, float] = {}
         residual_components: List[float] = []
