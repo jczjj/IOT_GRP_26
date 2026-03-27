@@ -811,7 +811,7 @@ def update_all_locations():
     Returns immediately with a `job_id`. Use `/api/update-all-locations/status/<job_id>`
     to poll for progress and final results.
     """
-    timeout = 60
+    timeout = 120
     if request.is_json:
         timeout = int(request.json.get('timeout', timeout))
     else:
