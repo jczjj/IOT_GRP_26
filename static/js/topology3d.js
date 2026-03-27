@@ -326,8 +326,11 @@ class Topology3D {
     }
 
     resetView() {
-        this.camera.position.set(15, 20, 25);
-        this.camera.lookAt(10, 0, 15);
+        // Position camera above and outside the cuboid to overlook the facility
+        // Cuboid bounds after offset: (15, 0, 20) to (45, 5, 60)
+        // Camera positioned at an angle above the cuboid center
+        this.camera.position.set(50, 25, 70);
+        this.camera.lookAt(30, 0, 40);
         this.controls.reset();
     }
 }
