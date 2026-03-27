@@ -65,7 +65,7 @@ header p {
 /* Main Content Layout */
 .main-content {
     display: grid;
-    grid-template-columns: 1fr 400px;
+    grid-template-columns: minmax(0, 0.9fr) minmax(540px, 1.1fr);
     gap: 1.5rem;
     padding: 1.5rem;
     height: calc(100vh - 120px);
@@ -99,6 +99,23 @@ header p {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+}
+
+.device-panel .panel-header {
+    align-items: flex-start;
+    gap: 1rem;
+}
+
+.device-panel .panel-header h2 {
+    margin-right: auto;
+    white-space: nowrap;
+}
+
+.device-panel .panel-controls {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 0.6rem;
 }
 
 #canvas-container {
@@ -144,8 +161,8 @@ header p {
 }
 
 .device-list {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.75rem;
     margin-top: 0.75rem;
 }
@@ -632,6 +649,10 @@ header p {
     .device-panel {
         max-height: 400px;
     }
+
+    .device-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
 
 /* Code and Technical Elements */
@@ -651,6 +672,10 @@ code {
 
 /* Responsive devices */
 @media (max-width: 768px) {
+    .device-list {
+        grid-template-columns: 1fr;
+    }
+
     .detail-grid {
         grid-template-columns: 1fr;
     }

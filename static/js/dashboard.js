@@ -303,7 +303,7 @@ async function localizeDeviceIfReady(deviceOrId) {
         const signature = buildRssiSignature(device);
         
         if (data.success) {
-            console.log(`✓ Auto-localized ${deviceId}: (${data.position.x.toFixed(2)}, ${data.position.y.toFixed(2)}, ${data.position.z.toFixed(2)})m`);
+            console.log(`Auto-localized ${deviceId}: (${data.position.x.toFixed(2)}, ${data.position.y.toFixed(2)}, ${data.position.z.toFixed(2)})m`);
             markAutoLocalizationComplete(deviceId, signature);
             
             // If modal is open and showing this device, update it
@@ -345,7 +345,7 @@ function createDeviceCard(device) {
     // Calculate RSSI measurement count
     const rssiCount = getValidRssiCount(device.rssi_readings);
     const localizationReady = hasAllFreshRssi(device.rssi_readings);
-    const readyIndicator = localizationReady ? '✓ Ready' : `${rssiCount}/3`;
+    const readyIndicator = localizationReady ? 'Ready' : `${rssiCount}/3`;
     const readyClass = localizationReady ? 'badge-success' : 'badge-warning';
     
     card.innerHTML = `
@@ -485,7 +485,7 @@ function showDeviceDetails(device) {
                             <span class="badge badge-${localizationReady ? 'success' : 'warning'}">
                                 ${rssiCount}/3
                             </span>
-                            ${localizationReady ? ' ✓ Ready' : ' Need more data'}
+                            ${localizationReady ? ' Ready' : ' Need more data'}
                         </td>
                     </tr>
                 </table>
@@ -681,7 +681,7 @@ function updateModalRSSIAndStatus(device) {
                 // rebuild the table html
                 const tableHtml = `<table class="detail-table">${rows}</table>`;
                 // replace the section's innerHTML but preserve header
-                const header = '<h3>📡 RSSI Readings from Anchors</h3>';
+                const header = '<h3>RSSI Readings from Anchors</h3>';
                 rssiSection.innerHTML = header + tableHtml + (getValidRssiCount(rssiReadings) === 0 ? '<p style="color: #ff9800; padding: 10px;">No RSSI data yet. Trigger location request to collect RSSI readings.</p>' : '');
             }
         }
@@ -1237,10 +1237,10 @@ function getStatusClass(status) {
 }
 
 function getBatteryIcon(level) {
-    if (level >= 75) return '🔋';
-    if (level >= 50) return '🔋';
-    if (level >= 25) return '⚠';
-    return '🪫';
+    if (level >= 75) return 'High';
+    if (level >= 50) return 'Medium';
+    if (level >= 25) return 'Low';
+    return 'Critical';
 }
 
 function getRSSIStrength(rssi) {
@@ -1284,10 +1284,7 @@ function formatTimestamp(timestamp) {
 
 function showToast(message, type = 'info', duration = 3000) {
     const toast = document.getElementById('toast');
-    const icons = { error: '✖', success: '✓', info: 'ℹ', warning: '⚠' };
-    const icon = icons[type] || '';
-    // use innerHTML so we can style the icon separately and keep message readable
-    toast.innerHTML = `<span style="margin-right:8px;font-weight:700">${icon}</span><span>${escapeHtml(String(message))}</span>`;
+    toast.innerHTML = `<span>${escapeHtml(String(message))}</span>`;
     toast.className = `toast toast-${type} show`;
     // log errors to console for easier debugging
     if (type === 'error') console.error('UI Toast Error:', message);
