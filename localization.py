@@ -112,15 +112,13 @@ class RSSIToDistance:
 
 
 class Trilateration:
-    """Solve 3D position from all anchors with weighted least squares."""
+    """Solve x/y from anchor geometry, then recover z from gateway distance."""
 
     MIN_MEASUREMENTS = 4
     REQUIRED_ANCHORS = set(ALL_ANCHOR_IDS)
     MAX_GAUSS_NEWTON_ITERATIONS = 30
     GAUSS_NEWTON_TOLERANCE = 1e-4
-    GATEWAY_WEIGHT_FACTOR = 0.7
-    GATEWAY_BIAS_PRIOR_STD_METERS = 0.9
-    PAIRWISE_DISTANCE_MARGIN_METERS = 1.8
+    GATEWAY_WEIGHT_FACTOR = 0.45
     GATEWAY_DISTANCE_TOLERANCE_METERS = 0.75
     MAX_RESIDUAL_ERROR = 2.0  # Meters - flag unreliable solutions
     MIN_CONFIDENCE_THRESHOLD = 0.5  # Minimum acceptable confidence
@@ -225,7 +223,7 @@ class Trilateration:
 
         gateway_measurement = measurement_map.get(GATEWAY_NODE_ID)
         if gateway_measurement is None:
-            logger.warning('Gateway RSSI is required as the 4th anchor in 3D trilateration.')
+            logger.warning('Gateway RSSI is required to recover z from trilateration.')
             return None
 
         required_ids = [GATEWAY_NODE_ID, 'sn1', 'sn2', 'sn3']
@@ -244,7 +242,6 @@ class Trilateration:
             init_weights_np = np.ones_like(init_weights_np)
         anchor_positions = np.array([a.position() for a in selected_anchors], dtype=float)
         position = np.average(anchor_positions, axis=0, weights=init_weights_np)
-        gateway_distance_bias_m = 0.0
         if prefer_2d:
             position[2] = FIXED_DEVICE_HEIGHT_METERS
 
@@ -259,34 +256,20 @@ class Trilateration:
                 if predicted_distance < 1e-6:
                     predicted_distance = 1e-6
 
-                is_gateway = measurement.node_id == GATEWAY_NODE_ID
-                measured_distance = measurement.distance + (gateway_distance_bias_m if is_gateway else 0.0)
-                residual = predicted_distance - measured_distance
+                residual = predicted_distance - measurement.distance
                 grad = delta / predicted_distance
                 if prefer_2d:
                     grad[2] = 0.0
 
-                jacobian_rows.append([
-                    float(grad[0]),
-                    float(grad[1]),
-                    float(grad[2]),
-                    -1.0 if is_gateway else 0.0,
-                ])
+                jacobian_rows.append([float(grad[0]), float(grad[1]), float(grad[2])])
                 residuals.append(residual)
                 if use_weights:
                     row_weights.append(Trilateration._measurement_weight(
                         measurement,
-                        is_gateway=is_gateway
+                        is_gateway=(measurement.node_id == GATEWAY_NODE_ID)
                     ))
                 else:
                     row_weights.append(1.0)
-
-            # Soft prior keeps gateway bias bounded while still allowing adaptive correction.
-            bias_prior_std = max(0.2, Trilateration.GATEWAY_BIAS_PRIOR_STD_METERS)
-            bias_prior_weight = 1.0 / (bias_prior_std ** 2)
-            jacobian_rows.append([0.0, 0.0, 0.0, 1.0])
-            residuals.append(gateway_distance_bias_m)
-            row_weights.append(bias_prior_weight)
 
             jacobian = np.array(jacobian_rows, dtype=float)
             residual_vector = np.array(residuals, dtype=float)
@@ -299,18 +282,16 @@ class Trilateration:
             weighted_residual = np.diag(np.sqrt(weight_vector)) @ residual_vector
 
             try:
-                delta_state, _, _, _ = np.linalg.lstsq(weighted_jacobian, -weighted_residual, rcond=None)
+                delta_position, _, _, _ = np.linalg.lstsq(weighted_jacobian, -weighted_residual, rcond=None)
             except np.linalg.LinAlgError as exc:
                 logger.error('3D weighted trilateration failed: %s', exc)
                 return None
 
-            position = position + delta_state[:3]
-            gateway_distance_bias_m = gateway_distance_bias_m + float(delta_state[3])
-            gateway_distance_bias_m = max(-8.0, min(8.0, gateway_distance_bias_m))
+            position = position + delta_position
             if prefer_2d:
                 position[2] = FIXED_DEVICE_HEIGHT_METERS
 
-            if float(np.linalg.norm(delta_state)) < Trilateration.GAUSS_NEWTON_TOLERANCE:
+            if float(np.linalg.norm(delta_position)) < Trilateration.GAUSS_NEWTON_TOLERANCE:
                 break
 
         x = float(position[0])
@@ -327,8 +308,7 @@ class Trilateration:
                 + ((z - anchor.z) ** 2)
             )
             predicted_distances[node_id] = predicted_distance
-            measured_distance = measurement.distance + (gateway_distance_bias_m if node_id == GATEWAY_NODE_ID else 0.0)
-            residual_components.append(predicted_distance - measured_distance)
+            residual_components.append(predicted_distance - measurement.distance)
 
         residual_error = float(np.sqrt(np.mean(np.square(residual_components)))) if residual_components else 0.0
         measurement_confidence = float(np.mean([measurement.confidence for measurement in measurement_map.values()]))
@@ -358,7 +338,6 @@ class Trilateration:
             'confidence': confidence,
             'accuracy': accuracy,
             'is_reliable': is_reliable,
-            'gateway_distance_bias_m': gateway_distance_bias_m,
             'num_measurements': len(measurement_map),
             'predicted_distances': predicted_distances,
             'measurement_validation': diagnostic_msg if not is_valid else 'OK',

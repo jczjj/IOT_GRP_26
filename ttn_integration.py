@@ -221,10 +221,8 @@ class TTNClient:
                 
                 # Log result
                 pos = result['position']
-                gateway_bias = result.get('gateway_distance_bias_m', 0.0)
                 logger.info(f"✓ LOCALIZED {device_id}: ({pos['x']:.2f}m, {pos['y']:.2f}m, {pos['z']:.2f}m) "
-                           f"| Error: {result['residual_error']:.2f}m | Confidence: {result['confidence']:.1%} "
-                           f"| GW bias: {gateway_bias:+.2f}m")
+                           f"| Error: {result['residual_error']:.2f}m | Confidence: {result['confidence']:.1%}")
                 
                 # Clear old RSSI data
                 self.rssi_buffer[device_id].clear()
