@@ -314,6 +314,20 @@ class TTNClient:
         
         # Image payload
         elif payload_type == 0x02 and len(raw_bytes) > 1:
+            # Optional forwarded-image format:
+            #   0x02 + source_device_byte + image_bytes
+            # Legacy format remains supported:
+            #   0x02 + image_bytes
+            # JPEG payloads typically begin with 0xFF 0xD8.
+            if len(raw_bytes) > 3 and raw_bytes[2] == 0xFF and raw_bytes[3] == 0xD8:
+                source_device_byte = raw_bytes[1]
+                return {
+                    'type': 'IMAGE',
+                    'source_device_id': f"ed-{source_device_byte}",
+                    'device_id_byte': source_device_byte,
+                    'image_data': raw_bytes[2:]
+                }
+
             return {
                 'type': 'IMAGE',
                 'image_data': raw_bytes[1:]

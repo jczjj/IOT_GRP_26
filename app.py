@@ -64,9 +64,64 @@ device_manager: DeviceManager = get_device_manager(UPLOAD_FOLDER)
 FACILITY_ANCHORS = get_default_anchors()
 
 # Initialize TTN client with callback
+def _resolve_image_owner_device(uplink_device_id: str, payload_data: dict) -> str:
+    """Resolve which device should own an IMAGE payload when relays are involved."""
+    def _normalize_local(device_id_value: str) -> str:
+        if not device_id_value:
+            return device_id_value
+        lowered = str(device_id_value).strip().lower()
+        if lowered.startswith('ed') and not lowered.startswith('ed-'):
+            suffix = lowered[2:]
+            if suffix.isdigit():
+                return f'ed-{suffix}'
+        return lowered
+
+    payload_type = payload_data.get('type')
+    if payload_type != 'IMAGE':
+        return uplink_device_id
+
+    explicit_source = payload_data.get('source_device_id') or payload_data.get('original_device_id')
+    if explicit_source:
+        resolved = _normalize_local(explicit_source)
+        payload_data['source_device_id'] = resolved
+        if resolved != uplink_device_id:
+            payload_data['forwarded_by_device_id'] = uplink_device_id
+            logger.info(
+                f"📷 Image source resolved from payload: source={resolved}, relay={uplink_device_id}"
+            )
+        return resolved
+
+    with IMAGE_BRIDGE_STATE['lock']:
+        pending = list(IMAGE_BRIDGE_STATE['pending_requests'])
+
+    if not pending:
+        return uplink_device_id
+
+    # If sender already matches an outstanding request, treat it as direct ownership.
+    for req in pending:
+        if req.get('device_id') == uplink_device_id:
+            return uplink_device_id
+
+    # Fallback for relayed images without embedded source metadata: use oldest request.
+    fallback_owner = pending[0].get('device_id')
+    if fallback_owner and fallback_owner != uplink_device_id:
+        payload_data['source_device_id'] = fallback_owner
+        payload_data['forwarded_by_device_id'] = uplink_device_id
+        logger.info(
+            f"📷 Image source inferred from pending request: source={fallback_owner}, relay={uplink_device_id}"
+        )
+        return fallback_owner
+
+    return uplink_device_id
+
+
 def on_ttn_message(device_id: str, payload_data: dict, metadata: dict):
     """Callback for TTN uplink messages"""
-    device_manager.handle_uplink_message(device_id, payload_data, metadata)
+    resolved_device_id = _resolve_image_owner_device(device_id, payload_data)
+    if resolved_device_id != device_id:
+        metadata = dict(metadata)
+        metadata['uplink_device_id'] = device_id
+    device_manager.handle_uplink_message(resolved_device_id, payload_data, metadata)
 
 ttn_client: TTNClient = get_ttn_client(
     on_message_callback=on_ttn_message,
