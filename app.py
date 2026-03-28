@@ -96,6 +96,32 @@ def _normalize_device_id(device_id: str) -> str:
     return lowered
 
 
+def _device_id_variants(device_id: str):
+    """Return possible ID forms (e.g., ed1 and ed-1) for robust matching."""
+    if not device_id:
+        return []
+
+    raw = str(device_id).strip().lower()
+    variants = [raw]
+
+    normalized = _normalize_device_id(raw)
+    if normalized and normalized not in variants:
+        variants.append(normalized)
+
+    if raw.startswith('ed-'):
+        undashed = 'ed' + raw[3:]
+        if undashed not in variants:
+            variants.append(undashed)
+    elif raw.startswith('ed') and not raw.startswith('ed-'):
+        suffix = raw[2:]
+        if suffix.isdigit():
+            dashed = f'ed-{suffix}'
+            if dashed not in variants:
+                variants.append(dashed)
+
+    return variants
+
+
 def _register_pending_image_request(device_id: str) -> dict:
     """Track image requests so arriving files can be attributed to the right device."""
     req = {
@@ -547,32 +573,79 @@ def get_image(device_id):
     }), 404
 
 
+@app.route('/api/device/<device_id>/images')
+def get_image_history(device_id):
+    """Get recent image history for a device (newest first)."""
+    variants = _device_id_variants(device_id)
+    limit_raw = request.args.get('limit', '30')
+    try:
+        limit = int(limit_raw)
+    except Exception:
+        limit = 30
+
+    for candidate in variants:
+        images = device_manager.get_device_images(candidate, limit=limit)
+        if images:
+            return jsonify({
+                'success': True,
+                'device_id': candidate,
+                'count': len(images),
+                'images': images
+            })
+
+    # Return empty success response if device exists but has no images yet.
+    normalized = _normalize_device_id(device_id)
+    exists = device_manager.get_device_by_id(normalized) or device_manager.get_device_by_id(device_id)
+    if exists:
+        return jsonify({'success': True, 'device_id': normalized, 'count': 0, 'images': []})
+
+    return jsonify({'success': False, 'error': 'Device not found'}), 404
+
+
 @app.route('/api/request-image-status/<device_id>')
 def request_image_status(device_id):
     """Poll readiness for a just-requested image and return URL immediately when available."""
-    normalized_device_id = _normalize_device_id(device_id)
-    effective_device_id = normalized_device_id
+    variants = _device_id_variants(device_id)
+    effective_device_id = variants[0] if variants else _normalize_device_id(device_id)
     request_id = request.args.get('request_id')
 
     with IMAGE_BRIDGE_STATE['lock']:
-        last = IMAGE_BRIDGE_STATE['last_received_by_device'].get(effective_device_id)
-        if not last and normalized_device_id != device_id:
-            effective_device_id = device_id
-            last = IMAGE_BRIDGE_STATE['last_received_by_device'].get(effective_device_id)
+        last = None
+        for candidate in variants:
+            found = IMAGE_BRIDGE_STATE['last_received_by_device'].get(candidate)
+            if found:
+                last = found
+                effective_device_id = candidate
+                break
 
     if not last:
         # Fallback: pull from central server HTTP archive if local watcher missed file events.
-        pulled = _pull_latest_archive_image_via_http(effective_device_id, request_id=request_id)
+        pulled = False
+        for candidate in variants:
+            if _pull_latest_archive_image_via_http(candidate, request_id=request_id):
+                effective_device_id = candidate
+                pulled = True
+                break
         if pulled:
             with IMAGE_BRIDGE_STATE['lock']:
-                last = IMAGE_BRIDGE_STATE['last_received_by_device'].get(effective_device_id)
+                for candidate in variants:
+                    found = IMAGE_BRIDGE_STATE['last_received_by_device'].get(candidate)
+                    if found:
+                        last = found
+                        effective_device_id = candidate
+                        break
         if not last:
             return jsonify({'success': True, 'ready': False})
 
     if request_id and last.get('request_id') != request_id:
         return jsonify({'success': True, 'ready': False})
 
-    image_data = device_manager.get_device_image(effective_device_id)
+    image_data = None
+    for candidate in variants:
+        image_data = device_manager.get_device_image(candidate)
+        if image_data:
+            effective_device_id = candidate
+            break
     if not image_data:
         return jsonify({'success': True, 'ready': False})
 
@@ -584,7 +657,8 @@ def request_image_status(device_id):
         'received_at': last.get('received_at'),
         'source_file': last.get('source_file'),
         'image_url': image_data['url'],
-        'timestamp': image_data.get('timestamp'),
+        # Prefer ingestion timestamp (local app clock) for live modal display.
+        'timestamp': last.get('received_at') or image_data.get('timestamp'),
         'size': image_data.get('size'),
         'resolution': image_data.get('resolution')
     })
@@ -643,12 +717,27 @@ def image_bridge_push():
 
     device_id = request.form.get('device_id')
     request_id = request.form.get('request_id')
-    normalized_device_id = _normalize_device_id(device_id) if device_id else None
+    device_variants = _device_id_variants(device_id)
 
-    req = _pop_pending_request(device_id=normalized_device_id, request_id=request_id)
+    # request_id is unique; use it first for the fastest and safest match.
+    req = _pop_pending_request(request_id=request_id) if request_id else None
+    if not req and device_variants:
+        for candidate in device_variants:
+            req = _pop_pending_request(device_id=candidate, request_id=request_id)
+            if req:
+                break
+
+    if not req and not request_id and not device_variants:
+        req = _pop_pending_request()
+
     if not req:
         with IMAGE_BRIDGE_STATE['lock']:
             pending_count = len(IMAGE_BRIDGE_STATE['pending_requests'])
+        logger.warning(
+            "image_bridge_push rejected: no pending match "
+            f"(device_id={device_id}, request_id={request_id}, "
+            f"variants={device_variants}, pending={pending_count})"
+        )
         return jsonify({
             'success': False,
             'error': 'No pending request available for image ingestion',

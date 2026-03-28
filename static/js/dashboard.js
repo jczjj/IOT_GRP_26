@@ -565,9 +565,28 @@ function renderLiveImage(data) {
 
     // Cache-bust to show the newly written latest file immediately.
     img.src = `${data.image_url}?t=${Date.now()}`;
-    ts.textContent = data.timestamp ? new Date(data.timestamp).toLocaleString() : 'N/A';
+    ts.textContent = formatTimestampForDisplay(data.timestamp || data.received_at);
     size.textContent = data.size || 'N/A';
     res.textContent = data.resolution || 'N/A';
+}
+
+
+function formatTimestampForDisplay(timestampValue) {
+    if (!timestampValue) {
+        return 'N/A';
+    }
+
+    let raw = String(timestampValue).trim();
+    // SQLite CURRENT_TIMESTAMP is UTC but often stored without timezone suffix.
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(raw)) {
+        raw = raw.replace(' ', 'T') + 'Z';
+    }
+
+    const dt = new Date(raw);
+    if (Number.isNaN(dt.getTime())) {
+        return String(timestampValue);
+    }
+    return dt.toLocaleString();
 }
 
 
@@ -580,9 +599,9 @@ function startLiveImagePolling(deviceId, requestId) {
     const encodedId = encodeURIComponent(deviceId);
     const encodedReq = encodeURIComponent(requestId || '');
     let attempts = 0;
-    const maxAttempts = 120; // 120 * 2s = 4 minutes
+    const maxAttempts = 240; // 240 * 1s = 4 minutes
 
-    liveImagePollInterval = setInterval(async () => {
+    const pollOnce = async () => {
         attempts += 1;
         try {
             const resp = await fetch(`/api/request-image-status/${encodedId}?request_id=${encodedReq}`);
@@ -618,7 +637,11 @@ function startLiveImagePolling(deviceId, requestId) {
             liveImagePollInterval = null;
             showToast('Error waiting for image', 'error');
         }
-    }, 2000);
+    };
+
+    // Do one immediate check so we don't always wait for the first interval tick.
+    pollOnce();
+    liveImagePollInterval = setInterval(pollOnce, 1000);
 }
 
 

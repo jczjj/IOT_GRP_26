@@ -54,6 +54,16 @@
                     <button onclick="requestNewImage()" class="btn btn-primary">Request New Image</button>
                 </div>
             </div>
+
+            <div class="image-history-container">
+                <div class="history-header-row">
+                    <h3>Capture History</h3>
+                    <button onclick="loadImageHistory()" class="btn btn-secondary">Refresh History</button>
+                </div>
+                <div id="imageHistoryList" class="image-history-list">
+                    <p class="empty-note">No past captures yet.</p>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -63,7 +73,40 @@
         // Load image on page load
         window.addEventListener('DOMContentLoaded', function() {
             loadDeviceImage();
+            loadImageHistory();
         });
+
+        function formatTimestampForDisplay(timestampValue) {
+            if (!timestampValue) {
+                return 'N/A';
+            }
+
+            let raw = String(timestampValue).trim();
+            if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(raw)) {
+                raw = raw.replace(' ', 'T') + 'Z';
+            }
+
+            const dt = new Date(raw);
+            if (Number.isNaN(dt.getTime())) {
+                return String(timestampValue);
+            }
+            return dt.toLocaleString();
+        }
+
+        function showImageFromHistory(item) {
+            if (!item || !item.url) {
+                return;
+            }
+
+            document.getElementById('imageLoading').style.display = 'none';
+            document.getElementById('imageError').style.display = 'none';
+            document.getElementById('imageContent').style.display = 'block';
+
+            document.getElementById('deviceImage').src = `${item.url}?t=${Date.now()}`;
+            document.getElementById('imageTimestamp').textContent = formatTimestampForDisplay(item.timestamp);
+            document.getElementById('imageSize').textContent = item.size || 'N/A';
+            document.getElementById('imageResolution').textContent = item.resolution || 'N/A';
+        }
 
         async function loadDeviceImage() {
             try {
@@ -75,7 +118,7 @@
                     document.getElementById('imageContent').style.display = 'block';
                     
                     document.getElementById('deviceImage').src = data.image_url;
-                    document.getElementById('imageTimestamp').textContent = new Date(data.timestamp).toLocaleString();
+                    document.getElementById('imageTimestamp').textContent = formatTimestampForDisplay(data.timestamp);
                     document.getElementById('imageSize').textContent = data.size || 'N/A';
                     document.getElementById('imageResolution').textContent = data.resolution || 'N/A';
                 } else {
@@ -108,6 +151,44 @@
             } catch (error) {
                 console.error('Error requesting image:', error);
                 alert('Failed to request image');
+            }
+        }
+
+        async function loadImageHistory() {
+            const container = document.getElementById('imageHistoryList');
+            if (!container) {
+                return;
+            }
+
+            container.innerHTML = '<p class="empty-note">Loading history...</p>';
+
+            try {
+                const response = await fetch(`/api/device/${deviceId}/images?limit=50`);
+                const data = await response.json();
+
+                if (!data.success || !Array.isArray(data.images) || data.images.length === 0) {
+                    container.innerHTML = '<p class="empty-note">No past captures yet.</p>';
+                    return;
+                }
+
+                container.innerHTML = data.images.map((item) => {
+                    const safeUrl = item.url || '';
+                    const safeTs = formatTimestampForDisplay(item.timestamp);
+                    const safeSize = item.size || 'N/A';
+                    const safeRes = item.resolution || 'Unknown';
+                    return `
+                        <button class="history-item" onclick='showImageFromHistory(${JSON.stringify(item).replace(/'/g, "&#39;")})'>
+                            <img src="${safeUrl}" alt="Capture thumbnail" class="history-thumb" onerror="this.style.display='none'">
+                            <div class="history-meta">
+                                <div class="history-time">${safeTs}</div>
+                                <div class="history-sub">${safeSize} • ${safeRes}</div>
+                            </div>
+                        </button>
+                    `;
+                }).join('');
+            } catch (error) {
+                console.error('Error loading image history:', error);
+                container.innerHTML = '<p class="empty-note">Failed to load history.</p>';
             }
         }
     </script>

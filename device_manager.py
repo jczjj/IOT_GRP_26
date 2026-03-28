@@ -25,6 +25,7 @@ from database import (
     insert_rssi_reading,
     insert_device_image,
     get_latest_device_image,
+    get_device_images as db_get_device_images,
     log_system_event
 )
 
@@ -283,6 +284,23 @@ class DeviceManager:
                 'resolution': img_data.get('resolution', 'Unknown')
             }
         return None
+
+    def get_device_images(self, device_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get recent image history entries for a device."""
+        items = []
+        for row in db_get_device_images(device_id, limit=limit):
+            image_path = row.get('image_path') or ''
+            filename = os.path.basename(image_path) if image_path else ''
+            size_bytes = row.get('size_bytes')
+            size_text = f"{size_bytes / 1024:.1f} KB" if isinstance(size_bytes, (int, float)) else 'N/A'
+            items.append({
+                'id': row.get('id'),
+                'url': f"/static/images/captured/{filename}" if filename else '',
+                'timestamp': row.get('timestamp'),
+                'size': size_text,
+                'resolution': row.get('resolution') or 'Unknown',
+            })
+        return items
     
     def _get_image_resolution(self, filepath: str) -> str:
         """Get image resolution"""

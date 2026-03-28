@@ -591,6 +591,27 @@ def get_latest_device_image(device_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def get_device_images(device_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    """Get recent image metadata for a device (newest first)."""
+    try:
+        safe_limit = max(1, min(int(limit), 200))
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT * FROM device_images
+            WHERE device_id = ?
+            ORDER BY timestamp DESC, id DESC
+            LIMIT ?
+        ''', (device_id, safe_limit))
+
+        rows = cursor.fetchall()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"Error getting image history for {device_id}: {e}")
+        return []
+
+
 def log_system_event(level: str, message: str, device_id: Optional[str] = None) -> bool:
     """Log system event"""
     try:
