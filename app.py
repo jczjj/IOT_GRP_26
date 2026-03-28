@@ -475,10 +475,19 @@ def request_image(device_id):
             'error': 'Could not find a valid path to the gateway'
         }), 500
 
+    # Filter out 'origin' (gateway) from the path - only send downlinks to actual devices
+    device_path = [d for d in path if d != 'origin']
+    
+    if not device_path:
+        return jsonify({
+            'success': False,
+            'error': 'No valid devices in path (only found gateway)'
+        }), 500
+
     # Send a downlink to every device in the path with the correct payload
     results = []
-    total = len(path)
-    for i, target_dev in enumerate(path):
+    total = len(device_path)
+    for i, target_dev in enumerate(device_path):
         hotspot_byte = 0x00 if i == 0 else 0x01
         hop_count_byte = total - i
         payload = bytes([0x02, hop_count_byte, hotspot_byte])
@@ -496,7 +505,7 @@ def request_image(device_id):
     req = _register_pending_image_request(effective_device_id) if all_ok else None
 
     if req:
-        logger.info(f"📸 Registered pending image request for {effective_device_id} (request_id: {req['request_id']}, path: {path})")
+        logger.info(f"📸 Registered pending image request for {effective_device_id} (request_id: {req['request_id']}, path: {device_path})")
     else:
         logger.warning(f"Failed to register pending request for {effective_device_id} - TTN downlinks failed")
 
@@ -504,7 +513,7 @@ def request_image(device_id):
         'success': all_ok,
         'message': f'Image request sent along path for device {effective_device_id}',
         'device_id': effective_device_id,
-        'path': path,
+        'path': device_path,
         'downlinks': results,
         'estimated_time': f'{total * 3} seconds',
         'request_id': req['request_id'] if req else None,
