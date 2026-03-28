@@ -23,7 +23,7 @@ class Topology3D {
         // around the same center. This changes spacing proportionally only.
         this.worldScale = 2.6;
         // Visual scale for facility shell only. Node/device positions remain unchanged.
-        this.cuboidScale = 0.6;
+        this.cuboidScale = 1.0;
         this.baseCuboidWidth = 50;
         this.baseCuboidLength = 60;
         this.baseCuboidHeight = 5;
@@ -53,7 +53,7 @@ class Topology3D {
         const aspect = this.container.clientWidth / this.container.clientHeight;
         this.camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
         // Default overview camera aimed at cuboid center
-        this.camera.position.set(34, 14, 44);
+        this.camera.position.set(46, 18, 58);
         this.camera.lookAt(this.cuboidCenter.x, this.cuboidCenter.y, this.cuboidCenter.z);
 
         // Create renderer
@@ -213,7 +213,10 @@ class Topology3D {
         this.addLabel(node.name, mesh.position, 1.5, 0xffffff);
 
         // Add range circle (on floor)
-        this.addRangeCircle(mesh.position, (isGateway ? 15 : 10) * this.cuboidScale, color);
+        // Keep coverage circles proportional to worldScale so visual radius
+        // matches the spread of plotted nodes/devices.
+        const coverageRadiusMeters = isGateway ? 20 : 16;
+        this.addRangeCircle(mesh.position, coverageRadiusMeters * this.worldScale, color);
         this.refreshDistanceOverlays();
     }
 
@@ -460,7 +463,7 @@ class Topology3D {
     }
 
     resetView() {
-        this.camera.position.set(34, 14, 44);
+        this.camera.position.set(46, 18, 58);
         this.controls.target.set(this.cuboidCenter.x, this.cuboidCenter.y, this.cuboidCenter.z);
         this.controls.update();
     }
