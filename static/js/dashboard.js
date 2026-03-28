@@ -303,7 +303,7 @@ async function localizeDeviceIfReady(deviceOrId) {
         const signature = buildRssiSignature(device);
         
         if (data.success) {
-            console.log(`Auto-localized ${deviceId}: (${data.position.x.toFixed(2)}, ${data.position.y.toFixed(2)}, ${data.position.z.toFixed(2)})m`);
+            console.log(`Auto-localized ${deviceId}: (${data.position.x.toFixed(2)}, ${data.position.y.toFixed(2)})m`);
             markAutoLocalizationComplete(deviceId, signature);
             
             // If modal is open and showing this device, update it
@@ -364,7 +364,7 @@ function createDeviceCard(device) {
             </div>
             <div class="info-row">
                 <span class="label">Position</span>
-                <span class="value mono">(${device.location.x.toFixed(1)}, ${device.location.y.toFixed(1)}, ${device.location.z.toFixed(1)}) m</span>
+                <span class="value mono">(${device.location.x.toFixed(1)}, ${device.location.y.toFixed(1)}) m</span>
             </div>
             <div class="info-row">
                 <span class="label">RSSI Nodes</span>
@@ -474,10 +474,6 @@ function showDeviceDetails(device) {
                     <tr>
                         <td><strong>Y</strong></td>
                         <td><code>${device.location.y.toFixed(3)}</code> m</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Z (Height)</strong></td>
-                        <td><code>${device.location.z.toFixed(3)}</code> m</td>
                     </tr>
                     <tr>
                         <td><strong>Anchor Nodes</strong></td>
