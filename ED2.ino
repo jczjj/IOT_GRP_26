@@ -9,7 +9,6 @@
 #define MY_DEVICE_ID 0x02   // <-- change this per device (0x01, 0x02, 0x03...)
 
 bool useLoRaWAN = true;
-bool waitingForAck = false;
 
 // For P2P repeated sending
 unsigned long lastSendTime = 0;
@@ -30,7 +29,7 @@ static const u1_t PROGMEM APPKEY[16] = {
 void os_getDevKey (u1_t* buf) { memcpy_P(buf, APPKEY, 16); }
 
 static osjob_t sendjob;
-static uint8_t mydata[] = { 0x01, MY_DEVICE_ID };  // [device ID, data]
+static uint8_t mydata[] = { 0x01, MY_DEVICE_ID };  // [rssi value,]
 const unsigned TX_INTERVAL = 30;
 
 const lmic_pinmap lmic_pins = {
@@ -42,9 +41,15 @@ const lmic_pinmap lmic_pins = {
 
 // ================= LORAWAN SEND =================
 void do_send(osjob_t* j) {
-  if (!(LMIC.opmode & OP_TXRXPEND)) {
-    LMIC_setTxData2(1, mydata, sizeof(mydata), 0);
+  if (LMIC.opmode & OP_TXRXPEND) {
+    // If MAC is busy (join/TX/RX), retry scheduling instead of dropping heartbeat.
+    os_setTimedCallback(&sendjob,
+      os_getTime() + sec2osticks(5),
+      do_send);
+    return;
   }
+
+  LMIC_setTxData2(1, mydata, sizeof(mydata), 0);
 }
 
 // ================= SWITCH TO P2P =================
@@ -53,13 +58,18 @@ void switchToLoRa() {
   LMIC_shutdown();
 
   useLoRaWAN = false;
-  waitingForAck = true;
+  retryCount = 0;
+  lastSendTime = 0;
 
   LoRa.setPins(SS, RST, DIO0);
 
   if (!LoRa.begin(915E6)) {
-    while (1);
+    Serial.println("LoRa P2P init failed");
+    while (1) {
+      delay(1000);
+    }
   }
+  LoRa.setTxPower(10);
 }
 
 // ================= SWITCH BACK TO LORAWAN =================
@@ -68,8 +78,9 @@ void switchToLoRaWAN() {
   LoRa.end();
 
   useLoRaWAN = true;
-  waitingForAck = false;
+  retryCount = 0;
 
+  // Reinitialize LMIC runtime after LMIC_shutdown() before resetting MAC state.
   os_init();
   LMIC_reset();
 
@@ -81,6 +92,14 @@ void switchToLoRaWAN() {
 
 // ================= LORAWAN EVENTS =================
 void onEvent (ev_t ev) {
+
+  if (ev == EV_JOIN_FAILED || ev == EV_REJOIN_FAILED) {
+    // Retry after a delay so the heartbeat loop self-recovers if join fails.
+    os_setTimedCallback(&sendjob,
+      os_getTime() + sec2osticks(TX_INTERVAL),
+      do_send);
+    return;
+  }
 
   if (ev == EV_TXCOMPLETE) {
 
@@ -101,7 +120,6 @@ void onEvent (ev_t ev) {
           Serial.write(LMIC.frame[LMIC.dataBeg + i]);  // send raw byte
         }
       }
-    
     }
 
     os_setTimedCallback(&sendjob,
@@ -132,15 +150,14 @@ void loop() {
   }
   else {
 
-    // Send repeatedly every 2 seconds
-    if (millis() - lastSendTime > sendInterval && retryCount < maxRetries) {
+    // Send attempts every sendInterval until maxRetries is reached.
+    if ((millis() - lastSendTime >= sendInterval) && retryCount < maxRetries) {
 
       LoRa.beginPacket();
       LoRa.write(0x1A);
       LoRa.write(0x2B);
       LoRa.write(MY_DEVICE_ID);  // byte[0] = device ID
       LoRa.endPacket();
-      delay(2000);
 
       lastSendTime = millis();
       retryCount++;
@@ -150,12 +167,17 @@ void loop() {
     int packetSize = LoRa.parsePacket();
     if (packetSize) {
 
-      String received = "";
+      char ackBuf[3];
+      uint8_t ackLen = 0;
+
+      while (LoRa.available() && ackLen < sizeof(ackBuf)) {
+        ackBuf[ackLen++] = (char)LoRa.read();
+      }
       while (LoRa.available()) {
-        received += (char)LoRa.read();
+        LoRa.read();
       }
 
-      if (received == "ACK") {
+      if (ackLen == 3 && ackBuf[0] == 'A' && ackBuf[1] == 'C' && ackBuf[2] == 'K') {
         retryCount = 0;
         switchToLoRaWAN();
       }
