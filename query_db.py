@@ -221,6 +221,60 @@ def show_images():
     conn.close()
 
 
+def show_localization_calibrations():
+    """Show per-device localization calibration profiles."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        SELECT
+            device_id,
+            reference_rssi_at_1_meter,
+            path_loss_exponent,
+            fixed_device_height_meters,
+            anchor_radius_meters,
+            node_rssi_calibration_json,
+            is_active,
+            updated_at
+        FROM device_localization_calibration
+        ORDER BY is_active DESC, updated_at DESC, device_id ASC
+    ''')
+
+    rows = cursor.fetchall()
+
+    if rows:
+        print("\n🎯 LOCALIZATION CALIBRATION PROFILES")
+        print("="*120)
+        headers = [
+            'Device ID',
+            'Ref RSSI@1m',
+            'Path Loss',
+            'Height (m)',
+            'Anchor R (m)',
+            'Node Offsets',
+            'Active',
+            'Updated',
+        ]
+        data = []
+        for row in rows:
+            data.append([
+                row['device_id'],
+                row['reference_rssi_at_1_meter'],
+                f"{row['path_loss_exponent']:.3f}",
+                f"{row['fixed_device_height_meters']:.2f}",
+                f"{row['anchor_radius_meters']:.2f}",
+                row['node_rssi_calibration_json'],
+                '✓' if row['is_active'] else ' ',
+                row['updated_at'],
+            ])
+        print(tabulate(data, headers=headers, tablefmt='grid'))
+    else:
+        print("  No localization calibration profiles found")
+
+    conn.close()
+
+
 def show_stats():
     """Show database statistics"""
     conn = sqlite3.connect(DB_PATH)
@@ -265,8 +319,9 @@ def interactive_menu():
         print("3. Show recent RSSI readings")
         print("4. Show RSSI summary (latest per device)")
         print("5. Show images")
-        print("6. Show database statistics")
-        print("7. Show all")
+        print("6. Show localization calibration profiles")
+        print("7. Show database statistics")
+        print("8. Show all")
         print("0. Exit")
         print("="*60)
         
@@ -284,13 +339,16 @@ def interactive_menu():
             elif choice == '5':
                 show_images()
             elif choice == '6':
-                show_stats()
+                show_localization_calibrations()
             elif choice == '7':
+                show_stats()
+            elif choice == '8':
                 show_stats()
                 show_devices()
                 show_stationary_nodes()
                 show_rssi_summary()
                 show_images()
+                show_localization_calibrations()
             elif choice == '0':
                 print("\nGoodbye!")
                 break
@@ -321,6 +379,8 @@ if __name__ == "__main__":
             show_rssi_summary()
         elif cmd == 'images':
             show_images()
+        elif cmd == 'calibration':
+            show_localization_calibrations()
         elif cmd == 'stats':
             show_stats()
         elif cmd == 'all':
@@ -329,9 +389,10 @@ if __name__ == "__main__":
             show_stationary_nodes()
             show_rssi_summary()
             show_images()
+            show_localization_calibrations()
         else:
             print(f"Unknown command: {cmd}")
-            print("Usage: python query_db.py [devices|nodes|rssi|summary|images|stats|all]")
+            print("Usage: python query_db.py [devices|nodes|rssi|summary|images|calibration|stats|all]")
     else:
         # Interactive mode
         interactive_menu()

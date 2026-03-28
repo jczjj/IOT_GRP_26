@@ -21,6 +21,25 @@ DB_PATH = 'elderly_monitoring.db'
 _thread_local = threading.local()
 
 
+def normalize_calibration_device_id(device_id: str) -> str:
+    """Normalize device IDs so both ed2 and ed-2 map to the same profile."""
+    if not device_id:
+        return ''
+
+    cleaned = str(device_id).strip().lower()
+    if cleaned.startswith('ed-'):
+        suffix = cleaned[3:]
+        if suffix.isdigit():
+            return f'ed{suffix}'
+
+    if cleaned.startswith('ed') and not cleaned.startswith('ed-'):
+        suffix = cleaned[2:]
+        if suffix.isdigit():
+            return f'ed{suffix}'
+
+    return cleaned
+
+
 def get_connection():
     """Get thread-local database connection"""
     if not hasattr(_thread_local, 'connection'):
@@ -126,6 +145,27 @@ def init_database(db_path: str = DB_PATH):
             device_id TEXT,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
+    ''')
+
+    # Per-end-device RSSI localization calibration profiles
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS device_localization_calibration (
+            device_id TEXT PRIMARY KEY,
+            reference_rssi_at_1_meter INTEGER NOT NULL,
+            path_loss_exponent REAL NOT NULL,
+            fixed_device_height_meters REAL NOT NULL DEFAULT 0.0,
+            anchor_radius_meters REAL NOT NULL DEFAULT 5.0,
+            node_rssi_calibration_json TEXT NOT NULL DEFAULT '{}',
+            notes TEXT,
+            is_active BOOLEAN NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_localization_calibration_active
+        ON device_localization_calibration(is_active)
     ''')
     
     conn.commit()
@@ -474,6 +514,175 @@ def get_latest_rssi_with_timestamps(device_id: str) -> Dict[str, Dict[str, Optio
                  'sn1': {'rssi': None, 'timestamp': None},
                  'sn2': {'rssi': None, 'timestamp': None},
                  'sn3': {'rssi': None, 'timestamp': None} }
+
+
+def upsert_device_localization_calibration(
+    device_id: str,
+    reference_rssi_at_1_meter: int,
+    path_loss_exponent: float,
+    fixed_device_height_meters: float = 0.0,
+    anchor_radius_meters: float = 5.0,
+    node_rssi_calibration: Optional[Dict[str, int]] = None,
+    notes: Optional[str] = None,
+    is_active: bool = False,
+) -> bool:
+    """Insert or update per-device localization calibration settings."""
+    try:
+        normalized_device_id = normalize_calibration_device_id(device_id)
+        if not normalized_device_id:
+            raise ValueError('device_id is required')
+
+        node_offsets = node_rssi_calibration or {}
+        encoded_offsets = json.dumps(node_offsets, sort_keys=True)
+
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            INSERT INTO device_localization_calibration (
+                device_id,
+                reference_rssi_at_1_meter,
+                path_loss_exponent,
+                fixed_device_height_meters,
+                anchor_radius_meters,
+                node_rssi_calibration_json,
+                notes,
+                is_active
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(device_id) DO UPDATE SET
+                reference_rssi_at_1_meter=excluded.reference_rssi_at_1_meter,
+                path_loss_exponent=excluded.path_loss_exponent,
+                fixed_device_height_meters=excluded.fixed_device_height_meters,
+                anchor_radius_meters=excluded.anchor_radius_meters,
+                node_rssi_calibration_json=excluded.node_rssi_calibration_json,
+                notes=excluded.notes,
+                is_active=excluded.is_active,
+                updated_at=CURRENT_TIMESTAMP
+        ''', (
+            normalized_device_id,
+            int(reference_rssi_at_1_meter),
+            float(path_loss_exponent),
+            float(fixed_device_height_meters),
+            float(anchor_radius_meters),
+            encoded_offsets,
+            notes,
+            1 if is_active else 0,
+        ))
+
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error upserting localization calibration for {device_id}: {e}")
+        return False
+
+
+def get_device_localization_calibration(device_id: str) -> Optional[Dict[str, Any]]:
+    """Get a calibration profile for a specific end device."""
+    try:
+        normalized_device_id = normalize_calibration_device_id(device_id)
+        if not normalized_device_id:
+            return None
+
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT * FROM device_localization_calibration WHERE device_id = ?',
+            (normalized_device_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+
+        record = dict(row)
+        try:
+            record['node_rssi_calibration'] = json.loads(record.get('node_rssi_calibration_json') or '{}')
+        except json.JSONDecodeError:
+            record['node_rssi_calibration'] = {}
+        record.pop('node_rssi_calibration_json', None)
+        return record
+    except Exception as e:
+        logger.error(f"Error fetching localization calibration for {device_id}: {e}")
+        return None
+
+
+def get_active_localization_calibration() -> Optional[Dict[str, Any]]:
+    """Get the currently active calibration profile."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT *
+            FROM device_localization_calibration
+            WHERE is_active = 1
+            ORDER BY updated_at DESC
+            LIMIT 1
+        ''')
+        row = cursor.fetchone()
+        if not row:
+            return None
+
+        record = dict(row)
+        try:
+            record['node_rssi_calibration'] = json.loads(record.get('node_rssi_calibration_json') or '{}')
+        except json.JSONDecodeError:
+            record['node_rssi_calibration'] = {}
+        record.pop('node_rssi_calibration_json', None)
+        return record
+    except Exception as e:
+        logger.error(f"Error fetching active localization calibration: {e}")
+        return None
+
+
+def list_device_localization_calibrations() -> List[Dict[str, Any]]:
+    """List all stored calibration profiles (newest first)."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT *
+            FROM device_localization_calibration
+            ORDER BY updated_at DESC, device_id ASC
+        ''')
+        rows = cursor.fetchall()
+
+        records: List[Dict[str, Any]] = []
+        for row in rows:
+            record = dict(row)
+            try:
+                record['node_rssi_calibration'] = json.loads(record.get('node_rssi_calibration_json') or '{}')
+            except json.JSONDecodeError:
+                record['node_rssi_calibration'] = {}
+            record.pop('node_rssi_calibration_json', None)
+            records.append(record)
+
+        return records
+    except Exception as e:
+        logger.error(f"Error listing localization calibrations: {e}")
+        return []
+
+
+def set_active_localization_calibration(device_id: str) -> bool:
+    """Set one device calibration profile as active and clear active flag on others."""
+    try:
+        normalized_device_id = normalize_calibration_device_id(device_id)
+        if not normalized_device_id:
+            return False
+
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('UPDATE device_localization_calibration SET is_active = 0 WHERE is_active = 1')
+        cursor.execute('''
+            UPDATE device_localization_calibration
+            SET is_active = 1, updated_at = CURRENT_TIMESTAMP
+            WHERE device_id = ?
+        ''', (normalized_device_id,))
+
+        conn.commit()
+        return cursor.rowcount > 0
+    except Exception as e:
+        logger.error(f"Error setting active localization calibration for {device_id}: {e}")
+        return False
 
 
 def insert_stationary_node(node_data: Dict[str, Any]) -> bool:
