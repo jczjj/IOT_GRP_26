@@ -421,48 +421,54 @@ MAX_DISTANCE = 0.5  # Maximum distance in meters for direct communication
 TARGET_NODE = ''  # We want to reach the gateway
 
 def find_best_path(database, target_node):
-	# Fetch all devices
-	cursor = database.cursor()
-	cursor.execute("SELECT device_id, location_x, location_y, location_z FROM devices")
-	devices = cursor.fetchall()
-	# Build device map
-	device_map = {dev[0]: (dev[1], dev[2], dev[3]) for dev in devices}
-	device_map['origin'] = (0, 0, 0)
-	
-	# Build graph with penalty for hops over MAX_DISTANCE
-	PENALTY_FACTOR = 10.0
-	graph = {}
-	for id1, coord1 in device_map.items():
-		graph[id1] = {}
-		for id2, coord2 in device_map.items():
-			if id1 != id2:
-				dist = math.sqrt(sum((a-b)**2 for a,b in zip(coord1, coord2)))
-				if dist <= MAX_DISTANCE:
-					graph[id1][id2] = dist
-				else:
-					graph[id1][id2] = dist * PENALTY_FACTOR
+    # Fetch all devices
+    cursor = database.cursor()
+    cursor.execute("SELECT device_id, location_x, location_y FROM devices")
+    devices = cursor.fetchall()
 
-	import heapq
-	start = target_node
-	end = 'origin'
-	queue = [(0, start, [start])]
-	visited = set()
-	while queue:
-		cost, node, path = heapq.heappop(queue)
-		if node in visited:
-			continue
-		visited.add(node)
-		# Always hop directly to origin if within MAX_DISTANCE
-		dist_to_origin = math.sqrt(sum((a-b)**2 for a,b in zip(device_map[node], device_map['origin'])))
-		if dist_to_origin <= MAX_DISTANCE and node != 'origin':
-			return (path[::-1])
-		
-		if node == end:
-			return path[::-1]
-		for neighbor, weight in graph[node].items():
-			if neighbor not in visited:
-				heapq.heappush(queue, (cost + weight, neighbor, [neighbor] + path))
-	return []
+    # Build device map in 2D
+    device_map = {dev[0]: (dev[1], dev[2]) for dev in devices}
+    device_map['origin'] = (0, 0)
+
+    # Build graph with penalty for hops over MAX_DISTANCE
+    PENALTY_FACTOR = 10.0
+    graph = {}
+    for id1, coord1 in device_map.items():
+        graph[id1] = {}
+        for id2, coord2 in device_map.items():
+            if id1 != id2:
+                dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(coord1, coord2)))
+                if dist <= MAX_DISTANCE:
+                    graph[id1][id2] = dist
+                else:
+                    graph[id1][id2] = dist * PENALTY_FACTOR
+
+    import heapq
+
+    start = target_node
+    end = 'origin'
+    queue = [(0, start, [start])]
+    visited = set()
+
+    while queue:
+        cost, node, path = heapq.heappop(queue)
+        if node in visited:
+            continue
+        visited.add(node)
+
+        # Always hop directly to origin if within MAX_DISTANCE
+        dist_to_origin = math.sqrt(sum((a - b) ** 2 for a, b in zip(device_map[node], device_map['origin'])))
+        if dist_to_origin <= MAX_DISTANCE and node != 'origin':
+            return path[::-1]
+
+        if node == end:
+            return path[::-1]
+
+        for neighbor, weight in graph[node].items():
+            if neighbor not in visited:
+                heapq.heappush(queue, (cost + weight, neighbor, [neighbor] + path))
+
+    return []
 
 
 @app.route('/')
