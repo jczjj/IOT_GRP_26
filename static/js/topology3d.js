@@ -14,6 +14,7 @@ class Topology3D {
         this.nodeMeshes = new Map();
         this.deviceLabels = new Map();  // Track device labels for cleanup
         this.signalLines = [];
+        this.nodeCoverageRings = new Map();
         this.distanceOverlays = [];
         this.showDistanceOverlays = false;
         
@@ -169,6 +170,7 @@ class Topology3D {
                 nodeType: node.type,
                 nodeId: node.id
             };
+            this.updateCoverageCircles();
             this.refreshDistanceOverlays();
             return;
         }
@@ -212,12 +214,42 @@ class Topology3D {
         // Add label
         this.addLabel(node.name, mesh.position, 1.5, 0xffffff);
 
-        // Add range circle (on floor)
-        // Keep coverage circles proportional to worldScale so visual radius
-        // matches the spread of plotted nodes/devices.
-        const coverageRadiusMeters = isGateway ? 20 : 16;
-        this.addRangeCircle(mesh.position, coverageRadiusMeters * this.worldScale, color);
+        // Recompute all stationary-node coverage circles to keep them non-overlapping.
+        this.updateCoverageCircles();
         this.refreshDistanceOverlays();
+    }
+
+    updateCoverageCircles() {
+        this.nodeCoverageRings.forEach(ring => this.scene.remove(ring));
+        this.nodeCoverageRings.clear();
+
+        const stationaryNodes = Array.from(this.nodeMeshes.values())
+            .filter(mesh => (mesh.userData?.nodeType || 'anchor') !== 'gateway');
+
+        const baseRadius = 7.5 * this.worldScale;
+
+        stationaryNodes.forEach((mesh, idx) => {
+            let nearest = Infinity;
+
+            stationaryNodes.forEach((other, otherIdx) => {
+                if (idx === otherIdx) return;
+
+                const dx = mesh.position.x - other.position.x;
+                const dz = mesh.position.z - other.position.z;
+                const distance = Math.sqrt((dx * dx) + (dz * dz));
+                nearest = Math.min(nearest, distance);
+            });
+
+            // Keep radius below half nearest-neighbor distance to avoid overlap.
+            const radius = Number.isFinite(nearest)
+                ? Math.max(0.6, Math.min(baseRadius, nearest * 0.48))
+                : baseRadius;
+
+            const nodeId = mesh.userData?.nodeId || `node-${idx}`;
+            const ringColor = mesh.material?.color?.getHex?.() ?? 0x4ecdc4;
+            const ring = this.addRangeCircle(mesh.position, radius, ringColor);
+            this.nodeCoverageRings.set(nodeId, ring);
+        });
     }
 
     addDevice(device) {
@@ -397,7 +429,9 @@ class Topology3D {
     }
 
     addRangeCircle(position, radius, color) {
-        const geometry = new THREE.RingGeometry(radius - 0.1, radius, 64);
+        const safeOuterRadius = Math.max(0.7, radius);
+        const safeInnerRadius = Math.max(0.45, safeOuterRadius - 0.18);
+        const geometry = new THREE.RingGeometry(safeInnerRadius, safeOuterRadius, 64);
         const material = new THREE.MeshBasicMaterial({
             color: color,
             side: THREE.DoubleSide,
@@ -406,8 +440,9 @@ class Topology3D {
         });
         const ring = new THREE.Mesh(geometry, material);
         ring.rotation.x = -Math.PI / 2;
-        ring.position.set(position.x, 0.1, position.z);
+        ring.position.set(position.x, this.facilityCenter.y + 0.1, position.z);
         this.scene.add(ring);
+        return ring;
     }
 
     clearDevices() {
