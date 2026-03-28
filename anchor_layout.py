@@ -12,8 +12,8 @@ ANCHOR_NODE_IDS = ('sn1', 'sn2', 'sn3')
 ALL_ANCHOR_IDS = (GATEWAY_NODE_ID, *ANCHOR_NODE_IDS)
 
 ANCHOR_RADIUS_METERS = 5.0
-REFERENCE_RSSI_AT_1_METER = -50
-PATH_LOSS_EXPONENT = 3.5      # Indoor same-floor small room (concrete walls / multipath); realistic range 2.7-4.0
+REFERENCE_RSSI_AT_1_METER = -49
+PATH_LOSS_EXPONENT = 3.1      # Fitted from measured points: -59@2m, -62@3m, -71@5m (rounded)
 FIXED_DEVICE_HEIGHT_METERS = 0.0  # Devices are at the same level as the gateway in the test room
 # Per-node RSSI calibration offsets (added to the raw RSSI before distance conversion).
 # Add an entry here only when you have a measured reference distance for that node.
