@@ -488,7 +488,7 @@ def request_image(device_id):
     results = []
     total = len(device_path)
     for i, target_dev in enumerate(device_path):
-        hotspot_byte = 0x00 if i == 0 else 0x01
+        hotspot_byte = 0x01 if i == 0 else 0x00
         hop_count_byte = total - i
         payload = bytes([0x02, hop_count_byte, hotspot_byte])
         success = ttn_client.send_downlink(target_dev, payload, fport=2)
