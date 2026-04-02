@@ -1,0 +1,448 @@
+[2026-04-03 03:36:01,335] 🚀 SOURCE (Node 2): Loading airlock from image_src.
+[Fri  3 Apr 03:36:01 +08 2026] 🚀 SENDER | Hunting: pi01pi01
+Connection 'pi01pi01' (a236656b-71f5-4944-b0eb-7ebfa29e13bd) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/4)
+Warning: Permanently added '10.42.1.1' (ED25519) to the list of known hosts.
+sending incremental file list
+./
+gatita.png
+payload.lock
+
+sent 59,167 bytes  received 61 bytes  39,485.33 bytes/sec
+total size is 58,956  speedup is 1.00
+[Fri  3 Apr 03:36:23 +08 2026] ✅ RSYNC SUCCESSFUL
+[Fri  3 Apr 03:36:23 +08 2026] 🏠 MISSION END: Returning to LOQ15_7071
+Connection 'LOQ15_7071' (e346f2e5-3a78-4634-afb4-874e97807fb7) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/5)
+[2026-04-03 03:46:44,251] 🚀 SOURCE (Node 2): Loading airlock from image_src.
+[Fri  3 Apr 03:46:44 +08 2026] 🚀 SENDER | Hunting: pi01pi01
+Connection 'pi01pi01' (272fdaba-e285-439b-8493-a54084b4d645) successfully added.
+Error: Connection activation failed: The Wi-Fi network could not be found
+Hint: use 'journalctl -xe NM_CONNECTION=272fdaba-e285-439b-8493-a54084b4d645 + NM_DEVICE=wlan0' to get more details.
+Connection 'pi01pi01' (1af8a04d-ae55-41ec-b54b-ed4047a4a330) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/9)
+Warning: Permanently added '10.42.1.1' (ED25519) to the list of known hosts.
+sending incremental file list
+./
+gatita.png
+payload.lock
+
+sent 59,164 bytes  received 61 bytes  39,483.33 bytes/sec
+total size is 58,956  speedup is 1.00
+[Fri  3 Apr 03:47:21 +08 2026] ✅ RSYNC SUCCESSFUL
+[Fri  3 Apr 03:47:21 +08 2026] 🏠 MISSION END: Returning to LOQ15_7071
+Connection 'LOQ15_7071' (65466e5c-96dc-426c-9ecd-2a288f6909af) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/10)
+[2026-04-03 03:51:07,537] 🚀 SOURCE (Node 2): Loading airlock from image_src.
+[Fri  3 Apr 03:51:07 +08 2026] 🚀 SENDER | Hunting: pi01pi01
+Connection 'pi01pi01' (dbf8de3b-0a1a-40ba-b59a-550cace7021a) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/11)
+Warning: Permanently added '10.42.1.1' (ED25519) to the list of known hosts.
+sending incremental file list
+./
+gatita.png
+payload.lock
+
+sent 59,167 bytes  received 61 bytes  23,691.20 bytes/sec
+total size is 58,956  speedup is 1.00
+[Fri  3 Apr 03:51:26 +08 2026] ✅ RSYNC SUCCESSFUL
+[Fri  3 Apr 03:51:26 +08 2026] 🏠 MISSION END: Returning to LOQ15_7071
+Connection 'LOQ15_7071' (15319c3d-b344-4354-88f3-c3e2622bca69) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/12)
+[2026-04-03 03:59:11,009] 🚀 SOURCE (Node 1): Loading airlock from image_src.
+[Fri  3 Apr 03:59:11 +08 2026] 🚀 SENDER | Hunting: pi00pi00
+Connection 'pi00pi00' (686bf656-489a-43ed-92b6-b30f1a794e1d) successfully added.
+Error: Connection activation failed: The Wi-Fi network could not be found
+Hint: use 'journalctl -xe NM_CONNECTION=686bf656-489a-43ed-92b6-b30f1a794e1d + NM_DEVICE=wlan0' to get more details.
+Connection 'pi00pi00' (bbc9d4d8-10f5-489c-8fe6-0156f0adfdbf) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/14)
+Warning: Permanently added '10.42.0.1' (ED25519) to the list of known hosts.
+sending incremental file list
+./
+gatita.png
+payload.lock
+
+sent 59,168 bytes  received 61 bytes  39,486.00 bytes/sec
+total size is 58,956  speedup is 1.00
+[Fri  3 Apr 03:59:55 +08 2026] ✅ RSYNC SUCCESSFUL
+[Fri  3 Apr 03:59:55 +08 2026] 🏠 MISSION END: Returning to LOQ15_7071
+Connection 'LOQ15_7071' (e91c9d58-a58d-4a7c-8034-23b51bc1727e) successfully added.
+[Fri  3 Apr 04:00:02 +08 2026] 🚑 FAILSAFE: Lost & Idle. Recovering to LOQ15_7071...
+Error: Connection activation failed: The base network connection was interrupted
+Hint: use 'journalctl -xe NM_CONNECTION=e91c9d58-a58d-4a7c-8034-23b51bc1727e + NM_DEVICE=wlan0' to get more details.
+Connection 'lo' (f96dd223-4f48-4eb5-bc0e-5eb20e4df6a6) successfully deleted.
+Connection 'LOQ15_7071' (e91c9d58-a58d-4a7c-8034-23b51bc1727e) successfully deleted.
+Connection 'pi00pi00' (bbc9d4d8-10f5-489c-8fe6-0156f0adfdbf) successfully deleted.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/17)
+[2026-04-03 04:03:22,971] 📡 RELAY (Node 1): Hosting for incoming data.
+[Fri  3 Apr 04:03:22 +08 2026] 📥 RECEIVER | Hosting: pi01pi01
+Connection 'pi01pi01' (6c30c99d-2c5f-49d0-81de-4169436a7ac9) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/18)
+[2026-04-03 04:03:43,272] 📦 Lock detected in Receive. Forwarding...
+[Fri  3 Apr 04:03:43 +08 2026] 🚀 SENDER | Hunting: pi00pi00
+Connection 'pi00pi00' (e8ffda64-30ef-4792-b8a4-5d20905a3f31) successfully added.
+[Fri  3 Apr 04:04:01 +08 2026] 🚑 FAILSAFE: Lost & Idle. Recovering to LOQ15_7071...
+Error: Connection activation failed: The base network connection was interrupted
+Hint: use 'journalctl -xe NM_CONNECTION=e8ffda64-30ef-4792-b8a4-5d20905a3f31 + NM_DEVICE=wlan0' to get more details.
+Connection 'lo' (fa6c9b5e-067e-42c8-ad06-a3c1dbf1a26c) successfully deleted.
+Connection 'pi00pi00' (e8ffda64-30ef-4792-b8a4-5d20905a3f31) successfully deleted.
+
+(process:4103): nm-CRITICAL **: 04:04:06.417: ((../src/libnm-core-impl/nm-connection.c:3121)): assertion '<dropped>' failed
+
+(process:4103): nm-CRITICAL **: 04:04:06.443: ((../src/nmcli/connections.c:2819)): assertion '<dropped>' failed
+Error: Connection activation failed: The base network connection was interrupted
+Connection 'pi00pi00' (33303a05-5f67-431c-a412-a073ea4fe020) successfully added.
+Error: Connection activation failed: The Wi-Fi network could not be found
+Hint: use 'journalctl -xe NM_CONNECTION=33303a05-5f67-431c-a412-a073ea4fe020 + NM_DEVICE=wlan0' to get more details.
+Connection 'pi00pi00' (1742cafb-5baf-4fa1-b538-47a8e0e169ab) successfully added.
+Error: Connection activation failed: The Wi-Fi network could not be found
+Hint: use 'journalctl -xe NM_CONNECTION=1742cafb-5baf-4fa1-b538-47a8e0e169ab + NM_DEVICE=wlan0' to get more details.
+Connection 'pi00pi00' (960dbec1-8278-4992-9887-eeb1e509c806) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/24)
+Warning: Permanently added '10.42.0.1' (ED25519) to the list of known hosts.
+sending incremental file list
+./
+gatita.png
+payload.lock
+
+sent 59,917 bytes  received 61 bytes  39,985.33 bytes/sec
+total size is 59,705  speedup is 1.00
+[Fri  3 Apr 04:05:31 +08 2026] ✅ RSYNC SUCCESSFUL
+[Fri  3 Apr 04:05:31 +08 2026] 🏠 MISSION END: Returning to LOQ15_7071
+Connection 'LOQ15_7071' (f378fb76-872d-4852-a904-4796c1b9cc4f) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/25)
+[2026-04-03 04:06:16,392] 🚀 SOURCE (Node 2): Loading airlock from image_src.
+[Fri  3 Apr 04:06:16 +08 2026] 🚀 SENDER | Hunting: pi01pi01
+Connection 'pi01pi01' (8079124f-1112-4f32-bce3-a18f6bb7f2bc) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/26)
+Warning: Permanently added '10.42.1.1' (ED25519) to the list of known hosts.
+sending incremental file list
+./
+gatita.png
+payload.lock
+
+sent 59,167 bytes  received 61 bytes  39,485.33 bytes/sec
+total size is 58,956  speedup is 1.00
+[Fri  3 Apr 04:06:26 +08 2026] ✅ RSYNC SUCCESSFUL
+[Fri  3 Apr 04:06:26 +08 2026] 🏠 MISSION END: Returning to LOQ15_7071
+Connection 'LOQ15_7071' (962ff644-1147-4d85-a255-e3dc3387cb55) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/27)
+[2026-04-03 04:27:45,009] 🚀 SOURCE (Node 1): Loading airlock from image_src.
+[Fri  3 Apr 04:27:45 +08 2026] 🚀 SENDER | Hunting: pi00pi00
+Connection 'pi00pi00' (84360666-91cf-494b-bfac-b2503e214d29) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/28)
+Warning: Permanently added '10.42.0.1' (ED25519) to the list of known hosts.
+sending incremental file list
+./
+gatita.png
+payload.lock
+
+sent 59,168 bytes  received 61 bytes  39,486.00 bytes/sec
+total size is 58,956  speedup is 1.00
+[Fri  3 Apr 04:27:54 +08 2026] ✅ RSYNC SUCCESSFUL
+[Fri  3 Apr 04:27:54 +08 2026] 🏠 MISSION END: Returning to LOQ15_7071
+Connection 'LOQ15_7071' (60c45a5b-1950-4ee2-b63b-ebc56eb0606f) successfully added.
+[Fri  3 Apr 04:28:01 +08 2026] 🚑 FAILSAFE: Lost & Idle. Recovering to LOQ15_7071...
+Error: Connection activation failed: The base network connection was interrupted
+Hint: use 'journalctl -xe NM_CONNECTION=60c45a5b-1950-4ee2-b63b-ebc56eb0606f + NM_DEVICE=wlan0' to get more details.
+Connection 'lo' (0caa733d-23d2-4239-852b-d4d6f5490233) successfully deleted.
+Connection 'LOQ15_7071' (60c45a5b-1950-4ee2-b63b-ebc56eb0606f) successfully deleted.
+Connection 'pi00pi00' (84360666-91cf-494b-bfac-b2503e214d29) successfully deleted.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/31)
+[2026-04-03 04:29:20,730] 📡 RELAY (Node 1): Hosting for incoming data.
+[Fri  3 Apr 04:29:20 +08 2026] 📥 RECEIVER | Hosting: pi01pi01
+Connection 'pi01pi01' (46d0a36c-8df0-421b-b628-58775d6efacc) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/32)
+[2026-04-03 04:29:31,547] 📦 Lock detected in Receive. Forwarding...
+[Fri  3 Apr 04:29:31 +08 2026] 🚀 SENDER | Hunting: pi00pi00
+Connection 'pi00pi00' (786a42f7-fcc0-4f59-8cb7-1ed439d7732e) successfully added.
+Error: Connection activation failed: The Wi-Fi network could not be found
+Hint: use 'journalctl -xe NM_CONNECTION=786a42f7-fcc0-4f59-8cb7-1ed439d7732e + NM_DEVICE=wlan0' to get more details.
+Connection 'pi00pi00' (6d825e9d-07ca-4dab-9640-75bde752bbf8) successfully added.
+Error: Connection activation failed: The Wi-Fi network could not be found
+Hint: use 'journalctl -xe NM_CONNECTION=6d825e9d-07ca-4dab-9640-75bde752bbf8 + NM_DEVICE=wlan0' to get more details.
+Connection 'pi00pi00' (b561ee89-e25d-4562-9895-96d8d646d9d9) successfully added.
+Error: Connection activation failed: The Wi-Fi network could not be found
+Hint: use 'journalctl -xe NM_CONNECTION=b561ee89-e25d-4562-9895-96d8d646d9d9 + NM_DEVICE=wlan0' to get more details.
+Connection 'pi00pi00' (e306f689-f602-4b15-ad19-24ebea95c53e) successfully added.
+Error: Connection activation failed: The Wi-Fi network could not be found
+Hint: use 'journalctl -xe NM_CONNECTION=e306f689-f602-4b15-ad19-24ebea95c53e + NM_DEVICE=wlan0' to get more details.
+Connection 'pi00pi00' (ec60f866-d92b-4063-8544-854fd1fd728c) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/37)
+Warning: Permanently added '10.42.0.1' (ED25519) to the list of known hosts.
+sending incremental file list
+./
+gatita.png
+payload.lock
+
+sent 59,924 bytes  received 61 bytes  7,057.06 bytes/sec
+total size is 59,705  speedup is 1.00
+[Fri  3 Apr 04:31:51 +08 2026] ✅ RSYNC SUCCESSFUL
+[Fri  3 Apr 04:31:51 +08 2026] 🏠 MISSION END: Returning to LOQ15_7071
+Connection 'LOQ15_7071' (9b0fa004-edce-4c17-9616-9d229fe1ce29) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/38)
+[2026-04-03 04:47:50,786] 📡 RELAY (Node 1): Hosting for incoming data.
+[Fri  3 Apr 04:47:50 +08 2026] 📥 RECEIVER | Hosting: pi01pi01
+Connection 'pi01pi01' (2be7cb76-699d-446b-8284-0a7e79b94c08) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/39)
+[Fri  3 Apr 04:48:01 +08 2026] 🚑 FAILSAFE: Lost & Idle. Recovering to LOQ15_7071...
+Connection 'lo' (9208f439-9217-4088-b0bc-280eb84df2b2) successfully deleted.
+Connection 'pi01pi01' (2be7cb76-699d-446b-8284-0a7e79b94c08) successfully deleted.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/41)
+[2026-04-03 04:48:55,960] 📡 RELAY (Node 1): Hosting for incoming data.
+[Fri  3 Apr 04:48:55 +08 2026] 📥 RECEIVER | Hosting: pi01pi01
+Connection 'pi01pi01' (801572a8-1594-43f9-9773-a4e375206716) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/42)
+[2026-04-03 04:49:14,913] 📦 Lock detected in Receive. Forwarding...
+[Fri  3 Apr 04:49:14 +08 2026] 🚀 SENDER | Hunting: pi00pi00
+Connection 'pi00pi00' (ff1b9ab4-bc9a-4030-9947-fdd164d4542a) successfully added.
+Error: Connection activation failed: The Wi-Fi network could not be found
+Hint: use 'journalctl -xe NM_CONNECTION=ff1b9ab4-bc9a-4030-9947-fdd164d4542a + NM_DEVICE=wlan0' to get more details.
+Connection 'pi00pi00' (574d3578-54f6-4159-b66c-661a64488598) successfully added.
+Error: Connection activation failed: The Wi-Fi network could not be found
+Hint: use 'journalctl -xe NM_CONNECTION=574d3578-54f6-4159-b66c-661a64488598 + NM_DEVICE=wlan0' to get more details.
+Connection 'pi00pi00' (2845d059-33e3-4fbf-8c05-d1022fa5b860) successfully added.
+Error: Connection activation failed: The Wi-Fi network could not be found
+Hint: use 'journalctl -xe NM_CONNECTION=2845d059-33e3-4fbf-8c05-d1022fa5b860 + NM_DEVICE=wlan0' to get more details.
+Connection 'pi00pi00' (9954856f-3fcb-490a-b6f6-f427c96a7f1d) successfully added.
+Error: Connection activation failed: The Wi-Fi network could not be found
+Hint: use 'journalctl -xe NM_CONNECTION=9954856f-3fcb-490a-b6f6-f427c96a7f1d + NM_DEVICE=wlan0' to get more details.
+Connection 'pi00pi00' (5c8b6788-473b-4473-aacd-fc6ad6dd1f0f) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/48)
+Warning: Permanently added '10.42.0.1' (ED25519) to the list of known hosts.
+sending incremental file list
+./
+gatita.png
+payload.lock
+
+sent 59,921 bytes  received 61 bytes  39,988.00 bytes/sec
+total size is 59,705  speedup is 1.00
+[Fri  3 Apr 04:51:22 +08 2026] ✅ RSYNC SUCCESSFUL
+[Fri  3 Apr 04:51:22 +08 2026] 🏠 MISSION END: Returning to LOQ15_7071
+Connection 'LOQ15_7071' (4bcc0c64-ec9e-4e04-a240-3ea8da37f836) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/49)
+[2026-04-03 04:55:30,655] 🚀 SOURCE (Node 2): Loading airlock from image_src.
+[Fri  3 Apr 04:55:30 +08 2026] 🚀 SENDER | Hunting: pi01pi01
+Connection 'pi01pi01' (06bd5be4-36a5-4631-b25e-b66d8d66d3cc) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/50)
+Warning: Permanently added '10.42.1.1' (ED25519) to the list of known hosts.
+sending incremental file list
+./
+gatita.png
+payload.lock
+
+sent 59,167 bytes  received 61 bytes  39,485.33 bytes/sec
+total size is 58,956  speedup is 1.00
+[Fri  3 Apr 04:55:48 +08 2026] ✅ RSYNC SUCCESSFUL
+[Fri  3 Apr 04:55:48 +08 2026] 🏠 MISSION END: Returning to LOQ15_7071
+Connection 'LOQ15_7071' (e70aa4d1-22c2-402a-9eb2-8caa0ad95e7c) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/51)
+[2026-04-03 05:11:05,435] 📡 RELAY (Node 1): Hosting for incoming data.
+[Fri  3 Apr 05:11:05 +08 2026] 📥 RECEIVER | Hosting: pi01pi01
+Connection 'pi01pi01' (337ecf70-c68b-4c0b-9a0d-19ac7f78b2e8) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/52)
+[2026-04-03 05:11:21,366] 📦 Lock detected in Receive. Forwarding...
+[Fri  3 Apr 05:11:21 +08 2026] 🚀 SENDER | Hunting: pi00pi00
+Connection 'pi00pi00' (fd61d415-eb88-469a-9ec4-dc6a70b75888) successfully added.
+Passwords or encryption keys are required to access the wireless network 'pi00pi00'.
+Warning: password for '802-11-wireless-security.psk' not given in 'passwd-file' and nmcli cannot ask without '--ask' option.
+Error: Connection activation failed: Secrets were required, but not provided
+Hint: use 'journalctl -xe NM_CONNECTION=fd61d415-eb88-469a-9ec4-dc6a70b75888 + NM_DEVICE=wlan0' to get more details.
+Connection 'pi00pi00' (952fa27e-e191-46a3-b7cd-1c93ffd16b8b) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/55)
+Warning: Permanently added '10.42.0.1' (ED25519) to the list of known hosts.
+[Fri  3 Apr 05:12:01 +08 2026] 🚑 FAILSAFE: Lost & Idle. Recovering to LOQ15_7071...
+Connection 'lo' (7f982230-5f61-4147-b8e8-be32974b057b) successfully deleted.
+Connection 'pi00pi00' (952fa27e-e191-46a3-b7cd-1c93ffd16b8b) successfully deleted.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/57)
+[sender] io timeout after 16 seconds -- exiting
+rsync error: timeout in data send/receive (code 30) at io.c(201) [sender=3.4.1]
+[sender] io timeout after 16 seconds -- exiting
+rsync error: timeout in data send/receive (code 30) at io.c(201) [sender=3.4.1]
+[Fri  3 Apr 05:12:57 +08 2026] 🏠 MISSION END: Returning to LOQ15_7071
+Warning: There is another connection with the name 'LOQ15_7071'. Reference the connection by its uuid '01644126-e248-47c9-9f5e-52a73450f4c0'
+Connection 'LOQ15_7071' (01644126-e248-47c9-9f5e-52a73450f4c0) successfully added.
+Warning: There is another connection with the name 'LOQ15_7071'. Reference the connection by its uuid 'bc4f8f49-e546-4236-ab7b-15787bb2a20f'
+Error: Connection activation failed: IP configuration could not be reserved (no available address, timeout, etc.)
+Hint: use 'journalctl -xe NM_CONNECTION=bc4f8f49-e546-4236-ab7b-15787bb2a20f + NM_DEVICE=wlan0' to get more details.
+[2026-04-03 05:14:53,922] 📡 RELAY (Node 1): Hosting for incoming data.
+[Fri  3 Apr 05:14:53 +08 2026] 📥 RECEIVER | Hosting: pi01pi01
+Connection 'pi01pi01' (07741f12-7fee-44e7-b2e2-dc52a951e1f1) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/60)
+[2026-04-03 05:15:10,811] 📦 Lock detected in Receive. Forwarding...
+[Fri  3 Apr 05:15:10 +08 2026] 🚀 SENDER | Hunting: pi00pi00
+Connection 'pi00pi00' (5ab92a12-84b1-4c9e-b6d8-778484dc86d1) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/61)
+Warning: Permanently added '10.42.0.1' (ED25519) to the list of known hosts.
+sending incremental file list
+./
+gatita.png
+payload.lock
+
+sent 59,924 bytes  received 61 bytes  6,314.21 bytes/sec
+total size is 59,705  speedup is 1.00
+[Fri  3 Apr 05:15:45 +08 2026] ✅ RSYNC SUCCESSFUL
+[Fri  3 Apr 05:15:45 +08 2026] 🏠 MISSION END: Returning to LOQ15_7071
+Connection 'LOQ15_7071' (63b9a10a-ce97-48c3-b060-c4681a77afba) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/62)
+[2026-04-03 05:16:56,124] 🚀 SOURCE (Node 2): Loading airlock from image_src.
+[Fri  3 Apr 05:16:56 +08 2026] 🚀 SENDER | Hunting: pi01pi01
+Connection 'pi01pi01' (cee6d556-ad32-4745-a37d-b9f9a974dc10) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/63)
+Warning: Permanently added '10.42.1.1' (ED25519) to the list of known hosts.
+sending incremental file list
+./
+gatita.png
+payload.lock
+
+sent 59,164 bytes  received 61 bytes  39,483.33 bytes/sec
+total size is 58,956  speedup is 1.00
+[Fri  3 Apr 05:17:13 +08 2026] ✅ RSYNC SUCCESSFUL
+[Fri  3 Apr 05:17:13 +08 2026] 🏠 MISSION END: Returning to LOQ15_7071
+Connection 'LOQ15_7071' (ecb3ab91-a49f-4934-a976-69617e241d0a) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/64)
+[2026-04-03 05:23:45,536] 📡 RELAY (Node 1): Hosting for incoming data.
+[Fri  3 Apr 05:23:45 +08 2026] 📥 RECEIVER | Hosting: pi01pi01
+Connection 'pi01pi01' (b5a99b1e-554a-4605-ae34-d6765d0304d4) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/65)
+[Fri  3 Apr 05:24:01 +08 2026] 🚑 FAILSAFE: Lost & Idle. Recovering to LOQ15_7071...
+Connection 'lo' (1ed4355d-e987-4161-8b35-9abf597305e8) successfully deleted.
+Connection 'pi01pi01' (b5a99b1e-554a-4605-ae34-d6765d0304d4) successfully deleted.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/67)
+[2026-04-03 05:29:03,062] INFO: 🧪 SIMULATION START: Node 1, Source=0
+[2026-04-03 05:29:03,062] INFO: 🔒 MISSION LOCK ACTIVE: /tmp/sdn_busy created.
+[2026-04-03 05:29:03,063] INFO: 🧹 Purging airlock: /home/sdn_service/poc/file_transfer/receive
+[2026-04-03 05:29:03,063] INFO: 📡 ROLE: RELAY (Node 1)
+[2026-04-03 05:29:03,063] INFO: ⚙️ Launching Engine: Mode=HOST, Target=0
+[Fri  3 Apr 05:29:03 +08 2026] 📥 RECEIVER | Hosting: pi01pi01
+Connection 'pi01pi01' (b408f546-3353-4e64-bf4d-6654388be3b4) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/69)
+[2026-04-03 05:29:04,439] INFO: ⏳ Waiting for incoming data lock...
+[2026-04-03 05:29:12,441] INFO: 📦 DATA DETECTED. Pivoting to forward payload.
+[2026-04-03 05:29:12,441] INFO: ⚙️ Launching Engine: Mode=PIVOT, Target=0
+[Fri  3 Apr 05:29:12 +08 2026] 🚀 SENDER | Hunting: pi00pi00
+Connection 'pi00pi00' (6273629b-c181-4f50-ba1a-f23115d7c663) successfully added.
+Error: Connection activation failed: The Wi-Fi network could not be found
+Hint: use 'journalctl -xe NM_CONNECTION=6273629b-c181-4f50-ba1a-f23115d7c663 + NM_DEVICE=wlan0' to get more details.
+Connection 'pi00pi00' (01baff61-563c-46c8-879e-e3f4aac16fc2) successfully added.
+Error: Connection activation failed: The Wi-Fi network could not be found
+Hint: use 'journalctl -xe NM_CONNECTION=01baff61-563c-46c8-879e-e3f4aac16fc2 + NM_DEVICE=wlan0' to get more details.
+Connection 'pi00pi00' (8c169436-e74e-4915-bf24-6868934b8257) successfully added.
+Error: Connection activation failed: The Wi-Fi network could not be found
+Hint: use 'journalctl -xe NM_CONNECTION=8c169436-e74e-4915-bf24-6868934b8257 + NM_DEVICE=wlan0' to get more details.
+Connection 'pi00pi00' (9b59c5fb-568c-4811-8d74-a3e2115af5da) successfully added.
+Error: Connection activation failed: The Wi-Fi network could not be found
+Hint: use 'journalctl -xe NM_CONNECTION=9b59c5fb-568c-4811-8d74-a3e2115af5da + NM_DEVICE=wlan0' to get more details.
+Connection 'pi00pi00' (a368fbbe-3961-4e41-905f-99344d8465a4) successfully added.
+Error: Connection activation failed: The Wi-Fi network could not be found
+Hint: use 'journalctl -xe NM_CONNECTION=a368fbbe-3961-4e41-905f-99344d8465a4 + NM_DEVICE=wlan0' to get more details.
+[Fri  3 Apr 05:31:47 +08 2026] 🏠 MISSION END: Returning to LOQ15_7071
+Connection 'LOQ15_7071' (5c1d07d2-4153-4391-9c8a-c188a90ca9fe) successfully added.
+[Fri  3 Apr 05:32:01 +08 2026] ⏳ FAILSAFE: System Busy (2 min). Skipping.
+Passwords or encryption keys are required to access the wireless network 'LOQ15_7071'.
+Warning: password for '802-11-wireless-security.psk' not given in 'passwd-file' and nmcli cannot ask without '--ask' option.
+Error: Connection activation failed: Secrets were required, but not provided
+Hint: use 'journalctl -xe NM_CONNECTION=5c1d07d2-4153-4391-9c8a-c188a90ca9fe + NM_DEVICE=wlan0' to get more details.
+[2026-04-03 05:32:14,668] INFO: 🧹 Purging airlock: /home/sdn_service/poc/file_transfer/receive
+[2026-04-03 05:32:14,670] INFO: 🔓 MISSION LOCK RELEASED: /tmp/sdn_busy deleted.
+[Fri  3 Apr 05:36:01 +08 2026] 🚑 FAILSAFE: Lost & Idle. Recovering to LOQ15_7071...
+Connection 'lo' (35642d9f-c6e2-4e8b-9f8b-c942808de7eb) successfully deleted.
+Connection 'LOQ15_7071' (5c1d07d2-4153-4391-9c8a-c188a90ca9fe) successfully deleted.
+Connection 'pi00pi00' (a368fbbe-3961-4e41-905f-99344d8465a4) successfully deleted.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/78)
+[2026-04-03 05:48:09,035] INFO: 🔒 LOCK: Mission Busy.
+[2026-04-03 05:48:09,035] INFO: 📡 RELAY (Node 1)
+[2026-04-03 05:48:09,035] INFO: ⚙️ Engine Start: HOST
+[Fri  3 Apr 05:48:09 +08 2026] 📥 RECEIVER | Hosting: pi01pi01
+Connection 'pi01pi01' (9e2b60ac-7d0e-442b-a532-f6c4a617629f) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/79)
+[2026-04-03 05:48:12,859] INFO: ⏳ Waiting for data (Timeout: 300s)...
+[2026-04-03 05:48:24,860] INFO: 📦 DATA RECEIVED. Forwarding...
+[2026-04-03 05:48:24,861] INFO: ⚙️ Engine Start: PIVOT
+[Fri  3 Apr 05:48:24 +08 2026] 🚀 SENDER | Hunting: pi00pi00
+Connection 'pi00pi00' (cd2a8972-6097-4597-a2f2-13820772244f) successfully added.
+Error: Connection activation failed: The Wi-Fi network could not be found
+Hint: use 'journalctl -xe NM_CONNECTION=cd2a8972-6097-4597-a2f2-13820772244f + NM_DEVICE=wlan0' to get more details.
+Connection 'pi00pi00' (c4ce8b3e-614b-41be-93c6-e33101d596c6) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/81)
+Warning: Permanently added '10.42.0.1' (ED25519) to the list of known hosts.
+sending incremental file list
+./
+gatita.png
+payload.lock
+
+sent 59,920 bytes  received 61 bytes  39,987.33 bytes/sec
+total size is 59,705  speedup is 1.00
+[Fri  3 Apr 05:49:10 +08 2026] ✅ RSYNC SUCCESSFUL
+[Fri  3 Apr 05:49:10 +08 2026] 🏠 MISSION END: Returning to LOQ15_7071
+Connection 'LOQ15_7071' (d70b3a48-7892-4be6-a2ca-fd649f93cf1c) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/82)
+[2026-04-03 05:49:24,762] INFO: ✅ Mission Finished Successfully.
+[2026-04-03 05:49:24,762] INFO: 🔓 LOCK: Released.
+[2026-04-03 05:52:10,480] INFO: 🔒 LOCK: Mission Busy.
+[2026-04-03 05:52:10,481] INFO: 🚀 SOURCE (Node 2)
+[2026-04-03 05:52:10,481] INFO: ⚙️ Engine Start: PIVOT
+[Fri  3 Apr 05:52:10 +08 2026] 🚀 SENDER | Hunting: pi01pi01
+Connection 'pi01pi01' (03124b6e-71ad-4bd9-abdf-e1ea9abf6c4d) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/83)
+Warning: Permanently added '10.42.1.1' (ED25519) to the list of known hosts.
+sending incremental file list
+./
+gatita.png
+payload.lock
+
+sent 59,167 bytes  received 61 bytes  118,456.00 bytes/sec
+total size is 58,956  speedup is 1.00
+[Fri  3 Apr 05:52:20 +08 2026] ✅ RSYNC SUCCESSFUL
+[Fri  3 Apr 05:52:20 +08 2026] 🏠 MISSION END: Returning to LOQ15_7071
+Connection 'LOQ15_7071' (f5a2be95-b3cf-4821-956b-4d27abbc8c15) successfully added.
+Error: Connection activation failed: IP configuration could not be reserved (no available address, timeout, etc.)
+Hint: use 'journalctl -xe NM_CONNECTION=f5a2be95-b3cf-4821-956b-4d27abbc8c15 + NM_DEVICE=wlan0' to get more details.
+[2026-04-03 05:53:12,709] ERROR: ❌ MISSION ABORTED: Command '['bash', '/home/sdn_service/poc/python_script/pp.sh', 'PIVOT', '2', '1', 'LOQ15_7071', 'section4', '/home/sdn_service/poc/python_script/production.log']' returned non-zero exit status 4.
+[2026-04-03 05:53:12,710] INFO: 🔓 LOCK: Released.
+[2026-04-03 05:54:29,176] INFO: 🔒 LOCK: Mission Busy.
+[2026-04-03 05:54:29,176] INFO: 🚀 SOURCE (Node 2)
+[2026-04-03 05:54:29,177] INFO: ⚙️ Engine Start: PIVOT
+[Fri  3 Apr 05:54:29 +08 2026] 🚀 SENDER | Hunting: pi01pi01
+Connection 'pi01pi01' (e54500d1-d779-40bd-a93a-0ba1d8811021) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/87)
+Warning: Permanently added '10.42.1.1' (ED25519) to the list of known hosts.
+sending incremental file list
+./
+gatita.png
+payload.lock
+
+sent 59,164 bytes  received 61 bytes  39,483.33 bytes/sec
+total size is 58,956  speedup is 1.00
+[Fri  3 Apr 05:54:46 +08 2026] ✅ RSYNC SUCCESSFUL
+[Fri  3 Apr 05:54:46 +08 2026] 🏠 MISSION END: Returning to LOQ15_7071
+Connection 'LOQ15_7071' (ae1efe48-2526-4abd-9551-245aa73cfaf1) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/88)
+[2026-04-03 05:54:53,997] INFO: ✅ Mission Finished Successfully.
+[2026-04-03 05:54:53,997] INFO: 🔓 LOCK: Released.
+[2026-04-03 05:57:33,053] INFO: 🔒 LOCK: Mission Busy.
+[2026-04-03 05:57:33,053] INFO: 📡 RELAY (Node 1)
+[2026-04-03 05:57:33,053] INFO: ⚙️ Engine Start: HOST
+[Fri  3 Apr 05:57:33 +08 2026] 📥 RECEIVER | Hosting: pi01pi01
+Connection 'pi01pi01' (99620405-8a56-4b07-8452-c42dcc730455) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/89)
+[2026-04-03 05:57:36,976] INFO: ⏳ Waiting for data (Timeout: 300s)...
+[2026-04-03 05:57:46,977] INFO: 📦 DATA RECEIVED. Forwarding...
+[2026-04-03 05:57:46,977] INFO: ⚙️ Engine Start: PIVOT
+[Fri  3 Apr 05:57:46 +08 2026] 🚀 SENDER | Hunting: pi00pi00
+Connection 'pi00pi00' (a757d821-d40a-4f6b-a637-aa1f4a3769c7) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/90)
+Warning: Permanently added '10.42.0.1' (ED25519) to the list of known hosts.
+sending incremental file list
+./
+gatita.png
+payload.lock
+
+sent 59,924 bytes  received 61 bytes  23,994.00 bytes/sec
+total size is 59,705  speedup is 1.00
+[Fri  3 Apr 05:58:03 +08 2026] ✅ RSYNC SUCCESSFUL
+[Fri  3 Apr 05:58:03 +08 2026] 🏠 MISSION END: Returning to LOQ15_7071
+Connection 'LOQ15_7071' (2cb694c8-721d-4251-aa69-de8d7f3c4c31) successfully added.
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/91)
+[2026-04-03 05:58:11,054] INFO: ✅ Mission Finished Successfully.
+[2026-04-03 05:58:11,055] INFO: 🔓 LOCK: Released.

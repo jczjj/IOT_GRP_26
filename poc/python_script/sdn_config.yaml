@@ -1,0 +1,20 @@
+# VERSION: 15.3 (Rebranded Receive)
+credentials:
+  pc_ssid: "pi00pi00"
+  pc_pass: "pi00pi00"
+  home_ssid: "LOQ15_7071"
+  home_pass: "section4"
+
+paths:
+  # image_src is the vault
+  source_dir: "/home/sdn_service/poc/file_transfer/image_src"
+  # receive is the airlock (staging area)
+  receive_dir: "/home/sdn_service/poc/file_transfer/receive"
+  
+  payload_file: "gatita.png"
+  lock_file: "payload.lock"
+  log_file: "/home/sdn_service/poc/python_script/production.log"
+  engine_path: "/home/sdn_service/poc/python_script/pp.sh"
+
+network:
+  recovery_enabled: true
