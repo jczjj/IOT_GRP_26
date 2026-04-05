@@ -118,6 +118,10 @@ class Trilateration:
     REQUIRED_ANCHORS = {'sn1', 'sn2', 'sn3'}
     MAX_GAUSS_NEWTON_ITERATIONS = 30
     GAUSS_NEWTON_TOLERANCE = 1e-4
+    MAX_GAUSS_NEWTON_STEP = 2.5  # meters per iteration
+    DAMPING_FACTOR = 0.7
+    PAIRWISE_FEASIBILITY_TOLERANCE = 1.5  # meters; absorbs RSSI model noise
+    POSITION_BOUND_MARGIN = 5.0  # extra meters around anchor geometry
     MAX_RESIDUAL_ERROR = 2.0  # Meters - flag unreliable solutions
     MIN_CONFIDENCE_THRESHOLD = 0.5  # Minimum acceptable confidence
 
@@ -151,39 +155,46 @@ class Trilateration:
         if missing_required:
             return False, f"Missing required anchors for 3D trilateration: {', '.join(missing_required)}"
         
-        # Check if any two stationary anchors both have very small measured distances
-        # that are physically impossible.
         measurement_map = {m.node_id: m for m in measurements}
-        strong_signals = [
-            (node_id, m.distance, m.rssi)
-            for node_id, m in measurement_map.items()
-            if node_id in Trilateration.REQUIRED_ANCHORS and m.distance < 1.0
-        ]
+        # Pairwise feasibility: any real point P must satisfy
+        # |d(P,A) - d(P,B)| <= d(A,B) <= d(P,A) + d(P,B), within tolerance.
+        required_ids = sorted(Trilateration.REQUIRED_ANCHORS)
+        for i in range(len(required_ids)):
+            for j in range(i + 1, len(required_ids)):
+                node_i = required_ids[i]
+                node_j = required_ids[j]
 
-        if len(strong_signals) >= 2:
-            for i in range(len(strong_signals)):
-                for j in range(i + 1, len(strong_signals)):
-                    node_i, dist_i, rssi_i = strong_signals[i]
-                    node_j, dist_j, rssi_j = strong_signals[j]
+                dist_i = measurement_map[node_i].distance
+                dist_j = measurement_map[node_j].distance
 
-                    anchor_i = anchors[node_i]
-                    anchor_j = anchors[node_j]
+                anchor_i = anchors[node_i]
+                anchor_j = anchors[node_j]
+                anchor_distance = math.sqrt(
+                    ((anchor_i.x - anchor_j.x) ** 2)
+                    + ((anchor_i.y - anchor_j.y) ** 2)
+                    + ((anchor_i.z - anchor_j.z) ** 2)
+                )
 
-                    anchor_distance = math.sqrt(
-                        ((anchor_i.x - anchor_j.x) ** 2)
-                        + ((anchor_i.y - anchor_j.y) ** 2)
-                        + ((anchor_i.z - anchor_j.z) ** 2)
+                tolerance = max(
+                    Trilateration.PAIRWISE_FEASIBILITY_TOLERANCE,
+                    0.15 * max(dist_i, dist_j),
+                )
+                lower_bound = abs(dist_i - dist_j)
+                upper_bound = dist_i + dist_j
+
+                if lower_bound > anchor_distance + tolerance:
+                    return False, (
+                        f"Inconsistent pair ({node_i}, {node_j}): |{dist_i:.2f} - {dist_j:.2f}| = "
+                        f"{lower_bound:.2f}m exceeds anchor spacing {anchor_distance:.2f}m "
+                        f"(tol {tolerance:.2f}m)."
                     )
 
-                    sum_of_radii = dist_i + dist_j
-
-                    if sum_of_radii < anchor_distance * 0.5:
-                        return False, (
-                            f"Impossible measurements: {node_i}({dist_i:.2f}m) and {node_j}({dist_j:.2f}m) "
-                            f"claim device is <1m from both, but anchors are {anchor_distance:.2f}m apart. "
-                            f"Device cannot be {dist_i:.2f}m from {node_i} ({rssi_i} dBm) "
-                            f"AND {dist_j:.2f}m from {node_j} ({rssi_j} dBm)."
-                        )
+                if upper_bound + tolerance < anchor_distance:
+                    return False, (
+                        f"Inconsistent pair ({node_i}, {node_j}): {dist_i:.2f} + {dist_j:.2f} = "
+                        f"{upper_bound:.2f}m is below anchor spacing {anchor_distance:.2f}m "
+                        f"(tol {tolerance:.2f}m)."
+                    )
         
         return True, "Measurements are geometrically feasible"
 
@@ -209,15 +220,18 @@ class Trilateration:
             logger.warning('Missing required anchors for 3D trilateration: %s', ', '.join(missing_required))
             return None
 
-        # Validate measurements for geometric feasibility
-        is_valid, diagnostic_msg = Trilateration.validate_measurements(measurements, anchors)
-        if not is_valid:
-            logger.warning('Measurement validation failed: %s', diagnostic_msg)
-            return None
-
         required_ids = ['sn1', 'sn2', 'sn3']
         selected_measurements = [measurement_map[node_id] for node_id in required_ids]
         selected_anchors = [anchors[node_id] for node_id in required_ids]
+
+        # Validate measurements for geometric feasibility
+        is_valid, diagnostic_msg = Trilateration.validate_measurements(measurements, anchors)
+        if not is_valid:
+            logger.warning(
+                'Measurement validation failed: %s. Using best-effort bounded localization.',
+                diagnostic_msg,
+            )
+        measured_max_distance = max(m.distance for m in selected_measurements)
 
         # Initial guess from weighted anchor centroid (xy only).
         init_weights = []
@@ -231,6 +245,19 @@ class Trilateration:
             init_weights_np = np.ones_like(init_weights_np)
         anchor_xy = np.array([[a.x, a.y] for a in selected_anchors], dtype=float)
         position_xy = np.average(anchor_xy, axis=0, weights=init_weights_np)
+        anchor_centroid = np.mean(anchor_xy, axis=0)
+        anchor_spread = float(np.max(np.linalg.norm(anchor_xy - anchor_centroid, axis=1)))
+        max_solver_radius = measured_max_distance + anchor_spread + Trilateration.POSITION_BOUND_MARGIN
+
+        def weighted_rmse(position: np.ndarray) -> float:
+            errors: List[float] = []
+            for anchor, measurement in zip(selected_anchors, selected_measurements):
+                residual = float(np.linalg.norm(position - np.array([anchor.x, anchor.y], dtype=float))) - measurement.distance
+                weight = Trilateration._measurement_weight(measurement) if use_weights else 1.0
+                errors.append((residual ** 2) * weight)
+            if not errors:
+                return 0.0
+            return float(np.sqrt(np.mean(errors)))
 
         for _ in range(Trilateration.MAX_GAUSS_NEWTON_ITERATIONS):
             jacobian_rows: List[List[float]] = []
@@ -269,7 +296,33 @@ class Trilateration:
                 logger.error('2D weighted trilateration failed: %s', exc)
                 return None
 
-            position_xy = position_xy + delta_xy
+            delta_norm = float(np.linalg.norm(delta_xy))
+            if delta_norm > Trilateration.MAX_GAUSS_NEWTON_STEP:
+                delta_xy = delta_xy * (Trilateration.MAX_GAUSS_NEWTON_STEP / delta_norm)
+
+            baseline_error = weighted_rmse(position_xy)
+            best_position = position_xy
+            best_error = baseline_error
+            step_scale = Trilateration.DAMPING_FACTOR
+
+            for _ in range(8):
+                candidate_position = position_xy + (delta_xy * step_scale)
+                offset = candidate_position - anchor_centroid
+                offset_norm = float(np.linalg.norm(offset))
+                if offset_norm > max_solver_radius:
+                    candidate_position = anchor_centroid + (offset * (max_solver_radius / offset_norm))
+
+                candidate_error = weighted_rmse(candidate_position)
+                if candidate_error < best_error:
+                    best_position = candidate_position
+                    best_error = candidate_error
+
+                if candidate_error <= baseline_error:
+                    break
+
+                step_scale *= 0.5
+
+            position_xy = best_position
 
             if float(np.linalg.norm(delta_xy)) < Trilateration.GAUSS_NEWTON_TOLERANCE:
                 break

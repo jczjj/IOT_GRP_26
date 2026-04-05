@@ -22,6 +22,16 @@ let currentDeviceJobDetailId = null;
 let deviceJobDetailPollInterval = null;
 let liveImagePollInterval = null;
 let activeImageRequest = null;
+let imageRequestInFlight = false;
+
+function setImageRequestButtonLocked(locked) {
+    const btn = document.getElementById('requestImageBtn');
+    if (!btn) {
+        return;
+    }
+    btn.disabled = !!locked;
+    btn.textContent = locked ? 'Waiting for Image...' : 'Request Image';
+}
 
 function getValidRssiEntries(rssiReadings) {
     return Object.entries(rssiReadings || {}).filter(([, rssi]) => Number.isFinite(rssi));
@@ -544,11 +554,10 @@ function openLiveImageModal(deviceId) {
 function closeLiveImageModal() {
     const modal = document.getElementById('liveImageModal');
     modal.style.display = 'none';
-    if (liveImagePollInterval) {
+    if (!imageRequestInFlight && liveImagePollInterval) {
         clearInterval(liveImagePollInterval);
         liveImagePollInterval = null;
     }
-    activeImageRequest = null;
 }
 
 
@@ -565,7 +574,8 @@ function renderLiveImage(data) {
 
     // Cache-bust to show the newly written latest file immediately.
     img.src = `${data.image_url}?t=${Date.now()}`;
-    ts.textContent = formatTimestampForDisplay(data.timestamp || data.received_at);
+    // Prefer in-memory ingestion time for the live modal when available.
+    ts.textContent = formatTimestampForDisplay(data.received_at || data.timestamp);
     size.textContent = data.size || 'N/A';
     res.textContent = data.resolution || 'N/A';
 }
@@ -577,9 +587,13 @@ function formatTimestampForDisplay(timestampValue) {
     }
 
     let raw = String(timestampValue).trim();
-    // SQLite CURRENT_TIMESTAMP is UTC but often stored without timezone suffix.
-    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(raw)) {
+    // Distinguish naive timestamps by source format:
+    // - "YYYY-MM-DD HH:MM:SS" (SQLite CURRENT_TIMESTAMP) => UTC
+    // - "YYYY-MM-DDTHH:MM:SS(.sss)" (datetime.now().isoformat()) => local app time
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$/.test(raw)) {
         raw = raw.replace(' ', 'T') + 'Z';
+    } else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(raw)) {
+        // keep as local naive timestamp (no timezone coercion)
     }
 
     const dt = new Date(raw);
@@ -598,11 +612,8 @@ function startLiveImagePolling(deviceId, requestId) {
 
     const encodedId = encodeURIComponent(deviceId);
     const encodedReq = encodeURIComponent(requestId || '');
-    let attempts = 0;
-    const maxAttempts = 240; // 240 * 1s = 4 minutes
 
     const pollOnce = async () => {
-        attempts += 1;
         try {
             const resp = await fetch(`/api/request-image-status/${encodedId}?request_id=${encodedReq}`);
             const data = await resp.json();
@@ -611,6 +622,9 @@ function startLiveImagePolling(deviceId, requestId) {
                 clearInterval(liveImagePollInterval);
                 liveImagePollInterval = null;
                 renderLiveImage(data);
+                imageRequestInFlight = false;
+                activeImageRequest = null;
+                setImageRequestButtonLocked(false);
 
                 // Keep UI state aligned with incoming image.
                 const viewImageBtn = document.getElementById('viewImageBtn');
@@ -625,17 +639,10 @@ function startLiveImagePolling(deviceId, requestId) {
                 loadData();
                 return;
             }
-
-            if (attempts >= maxAttempts) {
-                clearInterval(liveImagePollInterval);
-                liveImagePollInterval = null;
-                showToast('Timed out waiting for image', 'warning', 5000);
-            }
         } catch (err) {
             console.error('Error polling image status:', err);
-            clearInterval(liveImagePollInterval);
-            liveImagePollInterval = null;
-            showToast('Error waiting for image', 'error');
+            // Keep polling to avoid dropping the in-flight lock due to transient errors.
+            showToast('Temporary error while waiting for image, retrying...', 'warning', 2500);
         }
     };
 
@@ -949,7 +956,14 @@ async function triggerLocalization(deviceId) {
 }
 
 async function requestImage(deviceId) {
+    if (imageRequestInFlight) {
+        showToast('An image request is already in progress. Please wait for it to complete.', 'warning', 4000);
+        return;
+    }
+
     try {
+        imageRequestInFlight = true;
+        setImageRequestButtonLocked(true);
         showToast('Requesting image capture...', 'info');
         
         const response = await fetch(`/api/request-image/${deviceId}`, {
@@ -967,9 +981,17 @@ async function requestImage(deviceId) {
             openLiveImageModal(deviceId);
             startLiveImagePolling(deviceId, data.request_id || '');
         } else {
+            imageRequestInFlight = false;
+            setImageRequestButtonLocked(false);
+            if (response.status === 409) {
+                showToast(data.error || 'Another image request is currently in progress.', 'warning', 5000);
+                return;
+            }
             showToast('Failed to request image: ' + data.error, 'error');
         }
     } catch (error) {
+        imageRequestInFlight = false;
+        setImageRequestButtonLocked(false);
         console.error('Error requesting image:', error);
         showToast('Error requesting image', 'error');
     }

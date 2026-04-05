@@ -210,7 +210,8 @@ class DeviceManager:
             
             # Update database
             resolution = self._get_image_resolution(latest_filepath)
-            insert_device_image(device_id, latest_filepath, len(image_data), resolution)
+            # Store timestamped file path so history entries remain immutable.
+            insert_device_image(device_id, filepath, len(image_data), resolution)
             
             logger.info(f"✓ Image saved for {device_id}: {filename} ({len(image_data)} bytes)")
             

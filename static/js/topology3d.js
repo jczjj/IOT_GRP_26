@@ -24,7 +24,7 @@ class Topology3D {
         // around the same center. This changes spacing proportionally only.
         this.worldScale = 2.6;
         // Visual scale for facility shell only. Node/device positions remain unchanged.
-        this.cuboidScale = 1.0;
+        this.cuboidScale = 1.9;
         this.baseCuboidWidth = 50;
         this.baseCuboidLength = 60;
         this.baseCuboidHeight = 5;
@@ -226,7 +226,7 @@ class Topology3D {
         const stationaryNodes = Array.from(this.nodeMeshes.values())
             .filter(mesh => (mesh.userData?.nodeType || 'anchor') !== 'gateway');
 
-        const baseRadius = 7.5 * this.worldScale;
+        const baseRadius = 11.0 * this.worldScale;
 
         stationaryNodes.forEach((mesh, idx) => {
             let nearest = Infinity;
@@ -242,7 +242,7 @@ class Topology3D {
 
             // Keep radius below half nearest-neighbor distance to avoid overlap.
             const radius = Number.isFinite(nearest)
-                ? Math.max(0.6, Math.min(baseRadius, nearest * 0.48))
+                ? Math.max(1.0, Math.min(baseRadius, nearest * 0.49))
                 : baseRadius;
 
             const nodeId = mesh.userData?.nodeId || `node-${idx}`;
