@@ -70,7 +70,6 @@ void switchToLoRa() {
       delay(1000);
     }
   }
-  LoRa.setTxPower(10);
 }
 
 // ================= SWITCH BACK TO LORAWAN =================
