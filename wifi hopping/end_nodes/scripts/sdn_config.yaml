@@ -18,3 +18,8 @@ paths:
 
 network:
   recovery_enabled: true
+
+timeouts:
+  mission_max: 300
+  command_max: 120
+  hardware_wait: 60
