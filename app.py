@@ -926,6 +926,9 @@ def update_all_locations():
         except Exception:
             pass
 
+    if _has_active_localization_job():
+        return jsonify({'success': False, 'error': 'Localization in progress, please try again later'}), 409
+
     devices = device_manager.get_all_devices()
     device_ids = [d['id'] for d in devices]
 
@@ -964,6 +967,21 @@ def update_all_locations():
 
 # In-memory job store: job_id -> job info
 JOBS = {}
+
+
+def _has_active_localization_job(device_id: str | None = None) -> bool:
+    """Return True when any localization job is queued or in progress.
+
+    If device_id is provided, only jobs that include that device are considered.
+    """
+    active_statuses = {'queued', 'in_progress'}
+    for job in JOBS.values():
+        if job.get('status') not in active_statuses:
+            continue
+        if device_id is not None and device_id not in job.get('device_ids', []):
+            continue
+        return True
+    return False
 
 
 def _run_update_all_job(job_id: str):
@@ -1275,12 +1293,8 @@ def locate_job(device_id):
     if not device:
         return jsonify({'success': False, 'error': 'Device not found'}), 404
 
-    # Prevent creating a new locate job if there's already an active job
-    # that includes this device (queued or in_progress)
-    for jid, j in JOBS.items():
-        if device_id in j.get('device_ids', []):
-            if j.get('status') in ('queued', 'in_progress'):
-                return jsonify({'success': False, 'error': 'Localization in progress, please try again later'}), 409
+    if _has_active_localization_job(device_id):
+        return jsonify({'success': False, 'error': 'Localization in progress, please try again later'}), 409
 
     # Create job struct similar to update-all
     job_id = str(uuid.uuid4())

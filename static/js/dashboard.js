@@ -93,6 +93,27 @@ function markAutoLocalizationComplete(deviceId, signatureOverride = null) {
     });
 }
 
+async function hasActiveLocalizationJob(deviceId = null) {
+    const response = await fetch('/api/update-all-locations/jobs');
+    const data = await response.json();
+    if (!data.success || !Array.isArray(data.jobs)) {
+        return false;
+    }
+
+    return data.jobs.some(job => {
+        const isActive = ['queued', 'in_progress'].includes(job.status);
+        if (!isActive) {
+            return false;
+        }
+
+        if (deviceId === null) {
+            return true;
+        }
+
+        return Array.isArray(job.device_ids) && job.device_ids.includes(deviceId);
+    });
+}
+
 // Initialize dashboard on page load
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize 3D topology
@@ -902,6 +923,15 @@ function openDeviceJobPopup(jobId) {
 
 async function triggerLocalization(deviceId) {
     try {
+        try {
+            if (await hasActiveLocalizationJob()) {
+                showToast('Localization in progress, please try again later', 'error', 7000);
+                return;
+            }
+        } catch (e) {
+            console.debug('Could not check global localization job status before triggering localization:', e);
+        }
+
         // Check device job status first; if a locate job is already active,
         // inform the user rather than attempting to start another.
         try {
