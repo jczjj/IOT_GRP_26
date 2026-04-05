@@ -7,6 +7,17 @@ Elderly home monitoring dashboard with:
 - SQLite persistence
 - Web UI for live device status and captured images
 
+## Features
+
+- Live dashboard for end devices with battery, health metrics, and latest uplink timestamps
+- Automatic TTN MQTT ingest for uplinks with callback processing into persistent storage
+- RSSI collection from gateway and anchors, with API-triggered localization
+- 2D/3D localization support with confidence, residual error, and accuracy metrics
+- Device image pipeline with request/response tracking and archive bridge endpoints
+- Job-based multi-device update workflow for coordinated location refresh
+- SQLite-backed persistence for devices, RSSI history, and image metadata
+- REST endpoints for operations, diagnostics, and health checks
+
 This guide is designed so you can run the project on Windows, macOS, Linux, or Raspberry Pi with the same flow.
 
 ## 1. Requirements
@@ -70,7 +81,7 @@ python init_db.py
 
 Notes:
 - The default database file is `elderly_monitoring.db` in the project root.
-- Override with `IOT_DB_PATH` if needed.
+- `init_db.py` supports `IOT_DB_PATH`, but `app.py` currently initializes `elderly_monitoring.db` directly.
 
 ## 5. Start the Application
 
@@ -97,14 +108,15 @@ If remote devices cannot connect, verify:
 ## 7. Environment Variables
 
 Variables used by the app:
-- `IOT_DB_PATH`: custom SQLite database path
 - `WIFI_HOPPING_ARCHIVE_DIR`: folder watched for incoming image files
 - `IMAGE_WATCH_POLL_SECONDS`: image watcher interval in seconds (default `2`)
+
+Used by initialization scripts:
+- `IOT_DB_PATH`: custom SQLite database path for `init_db.py`
 
 ### Windows (PowerShell)
 
 ```powershell
-$env:IOT_DB_PATH = "C:\path\to\elderly_monitoring.db"
 $env:WIFI_HOPPING_ARCHIVE_DIR = "C:\path\to\archive"
 $env:IMAGE_WATCH_POLL_SECONDS = "2"
 python app.py
@@ -113,7 +125,6 @@ python app.py
 ### macOS / Linux
 
 ```bash
-export IOT_DB_PATH="/path/to/elderly_monitoring.db"
 export WIFI_HOPPING_ARCHIVE_DIR="/path/to/archive"
 export IMAGE_WATCH_POLL_SECONDS="2"
 python app.py
@@ -132,13 +143,37 @@ If TTN is unreachable, the web app can still start. Connection status appears in
 Run tests:
 
 ```bash
-pytest
+# No automated tests are currently checked in this repository.
+# If tests are added later, run:
+# pytest
 ```
 
-Quick database summary:
+Job and image-bridge endpoints:
 
 ```bash
-python query_db.py summary
+# Start multi-device localization job
+curl -X POST http://localhost:8080/api/update-all-locations
+
+# Check job status
+curl http://localhost:8080/api/update-all-locations/jobs
+
+# Single-device job-based localization
+curl -X POST http://localhost:8080/api/locate-job/ed-1
+
+# Image bridge diagnostics
+curl http://localhost:8080/api/image-bridge-debug
+```
+
+Health check endpoint:
+
+```bash
+curl http://localhost:8080/health
+```
+
+Inspect latest device records in SQLite:
+
+```bash
+sqlite3 elderly_monitoring.db "SELECT device_id, status, battery_level, last_uplink FROM devices ORDER BY device_id;"
 ```
 
 ## 10. Troubleshooting
@@ -170,16 +205,83 @@ pip install -r requirements.txt
 - Confirm firewall rule for TCP 8080
 - Confirm same network/subnet
 
-## 11. Key Files
+## 11. Project File Guide
 
-- `app.py`: Flask entrypoint and API routes
-- `ttn_integration.py`: TTN MQTT client and payload parsing
-- `device_manager.py`: runtime device state and processing
-- `database.py`: SQLite data access layer
-- `init_db.py`: DB initialization script
-- `templates/`: HTML templates
-- `static/`: CSS, JS, captured images
-- `guide/`: additional quickstart/integration guides
+This section explains what each major file does and when you should edit it.
+
+### Core backend files
+
+- `app.py`
+	- Main Flask application.
+	- Defines HTTP routes (`/api/...`), starts the TTN client, and coordinates image and localization workflows.
+	- Edit this when adding/changing API endpoints or request handling behavior.
+
+- `device_manager.py`
+	- Business logic layer used by `app.py`.
+	- Handles device state updates, RSSI processing, localization triggers, and image metadata updates.
+	- Edit this when changing how incoming data is interpreted or stored as device state.
+
+- `ttn_integration.py`
+	- TTN MQTT ingest and downlink helper logic.
+	- Parses incoming TTN payloads and forwards structured data into the app callback.
+	- Edit this when payload formats, TTN credentials, or MQTT behavior change.
+
+- `database.py`
+	- SQLite schema creation and CRUD/query helpers.
+	- Single place for SQL table definitions and DB access functions.
+	- Edit this when adding columns/tables or changing storage/query behavior.
+
+- `init_db.py`
+	- One-time DB initialization and anchor seeding utility.
+	- Creates schema and inserts infrastructure/anchor defaults.
+	- Run this on first setup (or when rebuilding the database).
+
+### Localization and geometry files
+
+- `anchor_layout.py`
+	- Shared source of truth for anchor geometry and localization calibration constants.
+	- Defines gateway/anchor IDs, coordinates, path loss parameters, and per-node RSSI offsets.
+	- Used by `app.py`, `ttn_integration.py`, and `init_db.py` to keep localization setup consistent.
+
+- `localization.py`
+	- RSSI-to-distance math and trilateration utilities (2D/3D localization calculations).
+	- Edit this when tuning localization algorithms or confidence/reliability logic.
+
+### Frontend files
+
+- `templates/dashboard.html`
+	- Main dashboard page skeleton (server-rendered HTML).
+
+- `templates/view_image.html`
+	- Dedicated page for viewing device image history/latest image.
+
+- `static/js/dashboard.js`
+	- Frontend controller for API calls, polling, job status updates, and UI interactions.
+
+- `static/js/topology3d.js`
+	- 3D visualization logic for anchors/devices and live location display.
+
+- `static/css/style.css`
+	- Styling for dashboard, panels, modal, and responsive layout.
+
+### Operational and config files
+
+- `requirements.txt`
+	- Python dependencies to install into your virtual environment.
+
+- `run_server.sh`
+	- Convenience script to activate `venv`, initialize DB if missing, then run `app.py`.
+
+- `elderly_monitoring.db`
+	- Runtime SQLite database file created/used by the application.
+
+### Data flow at a glance
+
+1. TTN uplink arrives in `ttn_integration.py`.
+2. Parsed message is passed to callback in `app.py`.
+3. `app.py` delegates state updates/localization work to `device_manager.py`.
+4. `device_manager.py` reads/writes persistent data through `database.py`.
+5. Frontend (`dashboard.js` + `topology3d.js`) polls API routes in `app.py` and renders updates.
 
 ## 12. Production Notes
 
