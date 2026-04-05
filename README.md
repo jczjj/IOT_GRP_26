@@ -7,6 +7,17 @@ Elderly home monitoring dashboard with:
 - SQLite persistence
 - Web UI for live device status and captured images
 
+## Features
+
+- Live dashboard for end devices with battery, health metrics, and latest uplink timestamps
+- Automatic TTN MQTT ingest for uplinks with callback processing into persistent storage
+- RSSI collection from gateway and anchors, with API-triggered localization
+- 2D/3D localization support with confidence, residual error, and accuracy metrics
+- Device image pipeline with request/response tracking and archive bridge endpoints
+- Job-based multi-device update workflow for coordinated location refresh
+- SQLite-backed persistence for devices, RSSI history, and image metadata
+- REST endpoints for operations, diagnostics, and health checks
+
 This guide is designed so you can run the project on Windows, macOS, Linux, or Raspberry Pi with the same flow.
 
 ## 1. Requirements
@@ -135,10 +146,16 @@ Run tests:
 pytest
 ```
 
-Quick database summary:
+Health check endpoint:
 
 ```bash
-python query_db.py summary
+curl http://localhost:8080/health
+```
+
+Inspect latest device records in SQLite:
+
+```bash
+sqlite3 elderly_monitoring.db "SELECT device_id, status, battery_level, last_uplink FROM devices ORDER BY device_id;"
 ```
 
 ## 10. Troubleshooting

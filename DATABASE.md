@@ -16,16 +16,13 @@ venv/bin/python init_db.py
 
 ### Query Database
 ```bash
-# Interactive menu
-venv/bin/python query_db.py
+sqlite3 elderly_monitoring.db
 
-# Command-line queries
-venv/bin/python query_db.py devices    # Show all devices
-venv/bin/python query_db.py nodes      # Show stationary nodes
-venv/bin/python query_db.py rssi       # Show recent RSSI readings
-venv/bin/python query_db.py summary    # Show latest RSSI per device
-venv/bin/python query_db.py stats      # Show database statistics
-venv/bin/python query_db.py all        # Show everything
+# Example queries
+sqlite> SELECT device_id, status, battery_level, last_uplink FROM devices ORDER BY device_id;
+sqlite> SELECT device_id, node_id, rssi, timestamp FROM rssi_readings ORDER BY timestamp DESC LIMIT 20;
+sqlite> SELECT node_id, name, location_x, location_y, location_z FROM stationary_nodes ORDER BY node_id;
+sqlite> .exit
 ```
 
 ### Direct SQL Access
@@ -293,8 +290,8 @@ sqlite3 elderly_monitoring.db "PRAGMA integrity_check;"
 
 **Check:**
 1. Is database initialized? `ls -lh elderly_monitoring.db`
-2. Are devices registered? `python query_db.py devices`
-3. Is TTN connected? Check `test_integration.py` output
+2. Are devices registered? `sqlite3 elderly_monitoring.db "SELECT device_id FROM devices;"`
+3. Is TTN connected? Check `GET /api/ttn-status` or Flask logs
 4. Are uplink messages being received? Check Flask logs
 
 ### Slow Queries
@@ -346,7 +343,6 @@ ON rssi_readings(device_id);
 
 - `database.py` - Database module with all CRUD operations
 - `init_db.py` - Database initialization script
-- `query_db.py` - Command-line query tool
 - `device_manager.py` - Business logic layer (uses database.py)
 - `app.py` - Flask API (uses device_manager.py)
 - `ttn_integration.py` - TTN MQTT client (feeds data to device_manager.py)

@@ -9,7 +9,6 @@ Your Flask application server has been successfully integrated with The Things N
 1. **`ttn_integration.py`** - Handles MQTT communication with TTN
 2. **`device_manager.py`** - Manages device state and real-time data
 3. **`INTEGRATION_GUIDE.md`** - Comprehensive integration documentation
-4. **`test_integration.py`** - Test script for verifying the integration
 
 ## 🔧 Files Modified
 
@@ -36,17 +35,23 @@ This creates `elderly_monitoring.db` with:
 - RSSI readings table
 - Images metadata table
 
-### 3. Test the Integration
+### 3. Verify the Integration
 ```bash
 cd "/home/yztan120/Application Server"
-venv/bin/python test_integration.py
+venv/bin/python app.py
 ```
 
-This will:
-- Connect to TTN
-- Show connected devices  
-- Test sending a downlink command
-- Listen for uplink messages
+Then, from another terminal:
+
+```bash
+curl http://localhost:8080/api/ttn-status
+curl http://localhost:8080/health
+```
+
+This verifies:
+- Web server is running
+- TTN client status is exposed
+- Core APIs are reachable
 
 ### 4. Run the Web Server
 
@@ -109,7 +114,7 @@ All original endpoints work, plus new ones:
 
 1. **Power on your LoRa devices** (ed-1, ed-2, ed-3, ed-4)
 2. **Monitor TTN Console** to verify devices are transmitting
-3. **Run test_integration.py** to verify connectivity
+3. **Call `/api/ttn-status`** to verify connectivity
 4. **Start the web server** with `python app.py`
 5. **Access the dashboard** at http://localhost:8080
 
@@ -141,16 +146,13 @@ INFO - 📡 Message received from device: ed-1
 
 ### View Database Contents
 ```bash
-# Interactive menu
-venv/bin/python query_db.py
+sqlite3 elderly_monitoring.db
 
 # Quick queries
-venv/bin/python query_db.py devices    # Show all devices
-venv/bin/python query_db.py nodes      # Show stationary nodes
-venv/bin/python query_db.py rssi       # Recent RSSI readings
-venv/bin/python query_db.py summary    # Latest RSSI per device
-venv/bin/python query_db.py stats      # Database statistics
-venv/bin/python query_db.py all        # Show everything
+sqlite> SELECT device_id, status, battery_level, last_uplink FROM devices ORDER BY device_id;
+sqlite> SELECT device_id, node_id, rssi, timestamp FROM rssi_readings ORDER BY timestamp DESC LIMIT 20;
+sqlite> SELECT node_id, location_x, location_y, location_z FROM stationary_nodes ORDER BY node_id;
+sqlite> .exit
 ```
 
 ### Backup Database
@@ -185,7 +187,6 @@ venv/bin/python init_db.py
 
 - **Full Guide:** [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md)
 - **Original README:** [README.md](README.md)
-- **Test Script:** `python test_integration.py`
 
 ## 🔐 Security Note
 
@@ -199,4 +200,4 @@ export TTN_REGION="au1"
 
 ---
 
-**Ready to test?** Run `python test_integration.py` to verify everything works!
+**Ready to test?** Run `python app.py`, then call `/api/ttn-status` and `/health` to verify everything works.

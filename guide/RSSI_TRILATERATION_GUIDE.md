@@ -237,8 +237,8 @@ async function localizeDevice(deviceId) {
 ### Step 1: Verify Database Setup
 
 ```bash
-python query_db.py
-# Look for devices and rssi_readings
+sqlite3 elderly_monitoring.db "SELECT device_id, status FROM devices ORDER BY device_id;"
+sqlite3 elderly_monitoring.db "SELECT device_id, node_id, rssi, timestamp FROM rssi_readings ORDER BY timestamp DESC LIMIT 20;"
 ```
 
 ### Step 2: Test RSSI Data Collection
@@ -281,7 +281,7 @@ Should show coordinates matching localization result.
 1. **Check RSSI data**
    - Are readings in expected range? (-30 to -100 dBm)
    - Do you have at least 4 measurements?
-   - Use `query_db.py` to inspect
+  - Use SQLite queries to inspect `rssi_readings`
 
 2. **Adjust path loss exponent**
    - Try 2.0 (fewer walls/obstacles)
